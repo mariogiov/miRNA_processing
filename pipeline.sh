@@ -4,13 +4,8 @@
 # <scriptname> input_fastq_file REFERENCE_GENOME ANNOTATION_FILE
 function print_usage { echo "Usage: -s <SEQUENCE_FILE> -r <GENOME_REFERENCE FILE (fasta)> -g <GENOME_FEATURE_FILE (gtf/gff)> -d <WORKING_DIRECTORY>." >&2 ; }
 
-
-#
-#Create a project directory containing a script directory with all scripts and a reference directory with bowtie refs and gff file.
-# as well as a seqdata directory with the raw sequencing data.
-#For the moment bowtie has to be under bowtie-1.0.0/ in the project directory.
-#
-
+# TODO add -f flag to overwrite existing files/directory
+# TODO add bash tab-completion
 
 # GET INPUT
 while getopts ":s:r:g:d:" opt; do
@@ -28,12 +23,12 @@ while getopts ":s:r:g:d:" opt; do
             WORK_DIR=$OPTARG
             ;;
         :)
-            echo "Option -$OPTARG requires an argument." >&2
+            echo "Option -$OPTARG requires an argument." 1>&2
             print_usage
             exit 1;
             ;;
         \?)
-            echo "Invalid option: -$OPTARG" >&2
+            echo "Invalid option: -$OPTARG" 1>&2
             print_usage
             exit 1;
             ;;
@@ -44,39 +39,40 @@ done
 # CHECK INPUTS
 
 if [[ ! $SEQ_FILE ]]; then
-    echo "Must specify input sequence file (-s)."
+    echo "Must specify input sequence file (-s)." 1>&2
     print_usage
     exit 1;
 fi
 
 if [[ $GENOME_REF ]] || [[ $GFF_FILE ]]; then
-    [[ $GENOME_REF ]] || echo "Warning: no genome reference file (-r) specified; will not perform alignment."
-    [[ $GFF_FILE ]] || echo "Warning: no genome feature file (-g) specified; will not perform annotation or feature counting."
+    [[ $GENOME_REF ]] || echo "Warning: no genome reference file (-r) specified; will not perform alignment." 1>&2
+    [[ $GFF_FILE ]] || echo "Warning: no genome feature file (-g) specified; will not perform annotation or feature counting." 1>&2
 else
-    echo "No genome reference file (-r) or genome feature file (-g) specified; nothing to do. Exiting."
+    echo "No genome reference file (-r) or genome feature file (-g) specified; nothing to do. Exiting." 1>&2
     print_usage
     exit
 fi
 
 for file in $SEQ_FILE $GENOME_REF $GFF_FILE; do
     if [[ ! -e $file ]]; then
-        echo "File does not exist: $file"
+        echo "File does not exist: $file" 1>&2
         exit
     elif [[ ! -r $file ]]; then
-        echo "File cannot be read: $file"
+        echo "File cannot be read: $file" 1>&2
         exit
     fi
 done
 
-if [[ ! $WORK_DIR ]]; then
-    echo "Info:    no working directory (-d) specified; using '$PWD'"
+if [[ $WORK_DIR ]]; then
+    WORK_DIR=$(readlink -f $WORK_DIR)
+else
+    echo "Info:    no working directory (-d) specified; using '$PWD'" 1>&2
     WORK_DIR=$PWD
 fi
-echo "WORK_DIR: $WORK_DIR"
+#echo "WORK_DIR: $WORK_DIR"
+
 
 # INPUT / DIRECTORY TREE CONSTRUCTION
-
-DATE=$(date "+%Y%m%d")
 
 INPUTFILE=$(basename $SEQ_FILE)
 INPUTFILE_ABSPATH=$(readlink -f $SEQ_FILE)
@@ -107,7 +103,7 @@ fi
 
 if [[ $GFF_FILE ]]; then
     GFF_FILE=$(basename $GFF_FILE)
-    GFF_FILE_ABSPATH=$(readlink -f $GFF_REF)
+    GFF_FILE_ABSPATH=$(readlink -f $GFF_FILE)
     GFF_FILE_DIR=$(dirname $GFF_FILE_ABSPATH)
     GFF_FILE_BASE="${GFF_FILE%.*}"
     GFF_FILE_EXTENSION="${GFF_FILE##*.}"
@@ -120,18 +116,15 @@ fi
 #echo "GFF_FILE_EXTENSION:  $GFF_FILE_EXTENSION"
 
 # Directories
+DATE=$(date "+%Y%m%d_%X")
 LOG_DIR=$WORK_DIR"/logs/"
 SEQDATA_DIR=$WORK_DIR"/seqdata/"
 ALIGNED_DIR=$WORK_DIR"/aligned/"
 ANNOTATED_DIR=$WORK_DIR"/annotated/"
-LOGFILE=$LOG_DIR/$INPUFILET_BASE$DATE".log"
+LOG_FILE=$LOG_DIR/$INPUTFILE_BASE"_"$DATE".log"
 for dir in $LOG_DIR $SEQDATA_DIR $ALIGNED_DIR $ANNOTATED_DIR; do
-    if [[ -e $dir ]]; then
-        # TODO add -f flag to force overwrite
-        echo "Directory '$dir' exists. Exiting."
-        exit
-    elif [[ $(mkdir -p $dir) -ne 0 ]]; then
-        echo "Cannot create directory $dir; exiting."
+    if [[ $(mkdir -p $dir) -ne 0 ]]; then
+        echo "Cannot create directory $dir; exiting." | tee 1>&2
         exit
     fi
 done
@@ -140,9 +133,7 @@ done
 #echo "SEQDATA_DIR:      $SEQDATA_DIR"
 #echo "ALIGNED_DIR:      $ALIGNED_DIR"
 #echo "ANNOTATED_DIR:    $ANNOTATED_DIR"
-#echo "LOGFILE:          $LOGFILE"
-
-exit
+#echo "LOG_FILE:         $LOG_FILE"
 
 # MODULE LOADING
 # Modules, activate the module command
@@ -173,30 +164,34 @@ module load bowtie2
 #
 
 # ADAPTER TRIMMING
-# Remove 3' adapter sequences, discarding reads shorter than $LENGTH
+# Remove 3' adapter sequences, discarding reads shorter than $MIN_SEQ_LENGTH
 PRESUFFIX='_trimmed'
 INFILE_CUTADAPT=$INPUTFILE_ABSPATH
-OUTFILE_CUTADAPT=$INPUTFILE_DIR$INPUTFILE_BASE$PRESUFFIX$INPUTFILE_EXTENSION
+OUTFILE_CUTADAPT=$SEQDATA_DIR"/"$INPUTFILE_BASE$PRESUFFIX"."$INPUTFILE_EXTENSION
 # TruSeq adapter sequence "TGGAATTCTCGGGTGCCAAGG"
 ADAPTER="TGGAATTCTCGGGTGCCAAGG"
-LENGTH='18'
+MIN_SEQ_LENGTH='18'
 
-if [ ! -f $OUTFILE_CUTADAPT ]
-then
-    cutadapt -a $ADAPTER --match-read-wildcards -O 5 -m $LENGTH --too-short-output=/dev/null -o $OUTFILE_CUTADAPT $INFILE_CUTADAPT | tee $LOGFILE
+if [ ! -f $OUTFILE_CUTADAPT ]; then
+    echo "Starting cutadapt trimming." | tee -a $LOG_FILE 1>&2
+    CL="cutadapt -f fastq -a $ADAPTER --match-read-wildcards -O 5 -m $MIN_SEQ_LENGTH --too-short-output=/dev/null -o $OUTFILE_CUTADAPT $INFILE_CUTADAPT"
+    echo "Cutadapt command: $CL" | tee -a $LOG_FILE 1>&2
+    eval $CL 2>&1 | tee -a $LOG_FILE
 else
-	echo 'Trimming already performed.'
+    echo "cutadapt adapter trimming already performed on $INFILE_CUTADAPT: output file $OUTFILE_CUTADAPT exists." | tee -a $LOG_FILE 1>&2
 fi
 
-cd ../aligned
+exit
+
+# ALIGNMENT TO GENOME
 #Align to genome
 #seed = 18, 1 missmatch, keep best hit
 #convert from SAM to BAM
-SUFFIX=$NEWSUFFIX
-NEWSUFFIX='_aln_'$REFBASE'.sam'
-REFERENCE_GENOME='../references/'$GREFBASE
-REFERENCE='../references/'$REFBASE
-INFILE_ALN='../seqdata/'$OUTFILE_CUTADAPT
+PRESUFFIX="_aln_"$REFBASE
+ALNSUFFIX=".sam"
+#NEWSUFFIX='_aln_'$REFBASE'.sam'
+INFILE_ALN=$OUTFILE_CUTADAPT
+OUTFILE_ALN=$SEQDATA_DIR"/"$INPUTFILE_BASE$PRESUFFIX$ALNSUFFIX
 OUTFILE_ALN=$(basename "$INFILE_ALN" $SUFFIX)$NEWSUFFIX
 
 if [ ! -f $OUTFILE_ALN ]
