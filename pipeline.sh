@@ -2,25 +2,29 @@
 
 # USAGE
 # <scriptname> input_fastq_file REFERENCE_GENOME ANNOTATION_FILE
-function print_usage { echo "Usage: -s <SEQUENCE_FILE> -r <GENOME_REFERENCE FILE (fasta)> -g <GENOME_FEATURE_FILE (gtf/gff)> -d <WORKING_DIRECTORY>." >&2 ; }
+function print_usage { echo "Usage: -s <SEQUENCE_FILE> -g <GENOME_REFERENCE FILE (fasta)> -f <GENOME_FEATURE_FILE (gtf/gff)> -w <WORKING_DIRECTORY> -n <CORES>." >&2 ; }
 
+# TODO this probably breaks with gzipped files what with the extension determination
+#      maybe easiest just to decompress them first?
 # TODO add -f flag to overwrite existing files/directory
-# TODO add bash tab-completion
 
 # GET INPUT
-while getopts ":s:r:g:d:" opt; do
+while getopts ":s:g:f:w:n:" opt; do
     case $opt in
         s)
             SEQ_FILE=$OPTARG
             ;;
-        r)
+        g)
             GENOME_REF=$OPTARG
             ;;
-        g)
-            GFF_FILE=$OPTARG
+        f)
+            FEATURES_FILE=$OPTARG
             ;;
-        d)
+        w)
             WORK_DIR=$OPTARG
+            ;;
+        n)
+            NUM_CORES=$OPTARG
             ;;
         :)
             echo "Option -$OPTARG requires an argument." 1>&2
@@ -44,16 +48,16 @@ if [[ ! $SEQ_FILE ]]; then
     exit 1;
 fi
 
-if [[ $GENOME_REF ]] || [[ $GFF_FILE ]]; then
+if [[ $GENOME_REF ]] || [[ $FEATURES_FILE ]]; then
     [[ $GENOME_REF ]] || echo "Warning: no genome reference file (-r) specified; will not perform alignment." 1>&2
-    [[ $GFF_FILE ]] || echo "Warning: no genome feature file (-g) specified; will not perform annotation or feature counting." 1>&2
+    [[ $FEATURES_FILE ]] || echo "Warning: no genome feature file (-g) specified; will not perform annotation or feature counting." 1>&2
 else
     echo "No genome reference file (-r) or genome feature file (-g) specified; nothing to do. Exiting." 1>&2
     print_usage
     exit
 fi
 
-for file in $SEQ_FILE $GENOME_REF $GFF_FILE; do
+for file in $SEQ_FILE $GENOME_REF $FEATURES_FILE; do
     if [[ ! -e $file ]]; then
         echo "File does not exist: $file" 1>&2
         exit
@@ -63,13 +67,24 @@ for file in $SEQ_FILE $GENOME_REF $GFF_FILE; do
     fi
 done
 
+SYS_CORES=$(nproc)
+if [[ $NUM_CORES =~ ^[0-9]+$ ]]; then
+    if [[ $NUM_CORES -gt $SYS_CORES ]]; then
+        echo "Number of cores specified ($NUM_CORES) greater than number of cores available ($SYS_CORES). Setting to maximum $SYS_CORES." 1>&2
+        NUM_CORES=$SYS_CORES
+    fi
+else
+    echo "Number of cores must be a positive integer between 1 and $SYS_CORES. Setting number of cores to 1." 1>&2
+    NUM_CORES=1
+fi
+
+
 if [[ $WORK_DIR ]]; then
     WORK_DIR=$(readlink -f $WORK_DIR)
 else
     echo "Info:    no working directory (-d) specified; using '$PWD'" 1>&2
     WORK_DIR=$PWD
 fi
-#echo "WORK_DIR: $WORK_DIR"
 
 
 # INPUT / DIRECTORY TREE CONSTRUCTION
@@ -80,11 +95,10 @@ INPUTFILE_DIR=$(dirname $INPUTFILE_ABSPATH)
 INPUTFILE_BASE="${INPUTFILE%.*}"
 INPUTFILE_EXTENSION="${INPUTFILE##*.}"
 
-#echo "INPUTFILE:            $INPUTFILE"
-#echo "INPUTFILE_ABSPATH:    $INPUTFILE_ABSPATH"
-#echo "INPUTFILE_DIR:        $INPUTFILE_DIR"
-#echo "INPUTFILE_BASE:       $INPUTFILE_BASE"
-#echo "INPUTFILE_EXTENSION:  $INPUTFILE_EXTENSION"
+# Decompress compressed data automatically
+#if [[ $(file $INPUTFILE_ABSPATH | grep gzip) ]]; then
+#    echo "Input file is compressed; decompressing to $SEQ_DATA
+#fi
 
 if [[ $GENOME_REF ]]; then
     REFERENCE=$(basename $GENOME_REF)
@@ -94,26 +108,13 @@ if [[ $GENOME_REF ]]; then
     REFERENCE_EXTENSION="${REFERENCE##*.}"
 fi
 
-#echo "REFERENCE:            $REFERENCE"
-#echo "REFERENCE_ABSPATH:    $REFERENCE_ABSPATH"
-#echo "REFERENCE_DIR:        $REFERENCE_DIR"
-#echo "REFERENCE_BASE:       $REFERENCE_BASE"
-#echo "REFERENCE_EXTENSION:  $REFERENCE_EXTENSION"
-
-
-if [[ $GFF_FILE ]]; then
-    GFF_FILE=$(basename $GFF_FILE)
-    GFF_FILE_ABSPATH=$(readlink -f $GFF_FILE)
-    GFF_FILE_DIR=$(dirname $GFF_FILE_ABSPATH)
-    GFF_FILE_BASE="${GFF_FILE%.*}"
-    GFF_FILE_EXTENSION="${GFF_FILE##*.}"
+if [[ $FEATURES_FILE ]]; then
+    FEATURES_FILE_ABSPATH=$(readlink -f $FEATURES_FILE)
+    FEATURES_FILE=$(basename $FEATURES_FILE)
+    FEATURES_FILE_DIR=$(dirname $FEATURES_FILE_ABSPATH)
+    FEATURES_FILE_BASE="${FEATURES_FILE%.*}"
+    FEATURES_FILE_EXTENSION="${FEATURES_FILE##*.}"
 fi
-
-#echo "GFF_FILE:            $GFF_FILE"
-#echo "GFF_FILE_ABSPATH:    $GFF_FILE_ABSPATH"
-#echo "GFF_FILE_DIR:        $GFF_FILE_DIR"
-#echo "GFF_FILE_BASE:       $GFF_FILE_BASE"
-#echo "GFF_FILE_EXTENSION:  $GFF_FILE_EXTENSION"
 
 # Directories
 DATE=$(date "+%Y%m%d_%X")
@@ -129,12 +130,6 @@ for dir in $LOG_DIR $SEQDATA_DIR $ALIGNED_DIR $ANNOTATED_DIR; do
     fi
 done
 
-#echo "LOG_DIR:          $LOG_DIR"
-#echo "SEQDATA_DIR:      $SEQDATA_DIR"
-#echo "ALIGNED_DIR:      $ALIGNED_DIR"
-#echo "ANNOTATED_DIR:    $ANNOTATED_DIR"
-#echo "LOG_FILE:         $LOG_FILE"
-
 # MODULE LOADING
 # Modules, activate the module command
 case "$0" in
@@ -144,10 +139,13 @@ case "$0" in
     -bash|bash|*/bash)  modules_shell=bash ;;
 esac
 module() { eval `/usr/local/Modules/$MODULE_VERSION/bin/modulecmd $modules_shell $*`; } 
-module load cutadapt
+module load bioinfo-tools
 module load bowtie2
+module load cutadapt
+module load htseq
+module load samtools
 
-# I'm not sure what this code is for -- I'm guessing if your samples aren't demultiplexed?
+# Jimmie barcoding experiments
 # Move barcode to header
 #if [ $BARCODED == 'barcoded' ]
 #then
@@ -163,6 +161,7 @@ module load bowtie2
 #fi
 #
 
+
 # ADAPTER TRIMMING
 # Remove 3' adapter sequences, discarding reads shorter than $MIN_SEQ_LENGTH
 PRESUFFIX='_trimmed'
@@ -173,84 +172,84 @@ ADAPTER="TGGAATTCTCGGGTGCCAAGG"
 MIN_SEQ_LENGTH='18'
 
 if [ ! -f $OUTFILE_CUTADAPT ]; then
-    echo "Starting cutadapt trimming." | tee -a $LOG_FILE 1>&2
+    echo -e "\nStarting cutadapt trimming at $(date)." | tee -a $LOG_FILE 1>&2
     CL="cutadapt -f fastq -a $ADAPTER --match-read-wildcards -O 5 -m $MIN_SEQ_LENGTH --too-short-output=/dev/null -o $OUTFILE_CUTADAPT $INFILE_CUTADAPT"
     echo "Cutadapt command: $CL" | tee -a $LOG_FILE 1>&2
     eval $CL 2>&1 | tee -a $LOG_FILE
 else
-    echo "cutadapt adapter trimming already performed on $INFILE_CUTADAPT: output file $OUTFILE_CUTADAPT exists." | tee -a $LOG_FILE 1>&2
+    echo -e "\ncutadapt adapter trimming already performed on $(basename $INFILE_CUTADAPT):\noutput file $(basename $OUTFILE_CUTADAPT) exists." | tee -a $LOG_FILE 1>&2
 fi
 
-exit
 
 # ALIGNMENT TO GENOME
-#Align to genome
-#seed = 18, 1 missmatch, keep best hit
-#convert from SAM to BAM
-PRESUFFIX="_aln_"$REFBASE
-ALNSUFFIX=".sam"
-#NEWSUFFIX='_aln_'$REFBASE'.sam'
 INFILE_ALN=$OUTFILE_CUTADAPT
-OUTFILE_ALN=$SEQDATA_DIR"/"$INPUTFILE_BASE$PRESUFFIX$ALNSUFFIX
-OUTFILE_ALN=$(basename "$INFILE_ALN" $SUFFIX)$NEWSUFFIX
+OUTFILE_ALN=$ALIGNED_DIR"/"$INPUTFILE_BASE"_aln_"$REFERENCE_BASE".sam"
 
-if [ ! -f $OUTFILE_ALN ]
-then
-    #../bowtie-1.0.0/  needed for testing localy
-    bowtie -n 1 -l 18 -k 1 --best -p 8 $REFERENCE $INFILE_ALN -S > $OUTFILE_ALN #| tee $LOGFILE #| samtools view -S -b - > $OUTFILE_MIRBASE 
+if [[ ! -f $OUTFILE_ALN ]]; then
+    echo -e "\nStarted bowtie2 alignment at $(date)." | tee -a $LOG_FILE 1>&2
+    # Need some kinda tricky redirection I guess for this to send stderr to a file but stdout to samtools?
+    bowtie2 -N 1 -L 18 -p $NUM_CORES -x $REFERENCE_DIR'/'$REFERENCE_BASE $INFILE_ALN | samtools view -S -b - > $OUTFILE_ALN 2>$LOG_FILE
 else
-	echo 'Alignment to mirbase already performed.'
+    echo -e "\nAlignment of $(basename $INFILE_ALN) to $(basename $REFERENCE_ABSPATH) already performed:\n$(basename $OUTFILE_ALN) already exists." | tee -a $LOG_FILE 1>&2
 fi
 
-# When it's working!!!!!
-#rm $OUTFILE_CUTADAPT
-
+# Jimmie barcoding experiments
 # Move barcode to header
-if [ $BARCODED == 'barcoded' ]
-then
-	SUFFIX=$NEWSUFFIX
-	NEWSUFFIX='_aln_'$REFBASE'_barcoded.sam'
-	OUTFILE_BSAM=$(basename "$OUTFILE_ALN" $SUFFIX)$NEWSUFFIX
-	if [ ! -f $OUTFILE_BSAM ]
-	then
-    	python ../scripts/oop.py 'sam_barcoding' $OUTFILE_ALN $OUTFILE_BSAM
-    	rm $OUTFILE_ALN
-    	cp $OUTFILE_BSAM $OUTFILE_ALN
-	else
-    	echo 'Barcoding of sam already performed'
-    fi
-fi
+#if [ $BARCODED == 'barcoded' ]
+#then
+#	SUFFIX=$NEWSUFFIX
+#	NEWSUFFIX='_aln_'$REFBASE'_barcoded.sam'
+#	OUTFILE_BSAM=$(basename "$OUTFILE_ALN" $SUFFIX)$NEWSUFFIX
+#	if [ ! -f $OUTFILE_BSAM ]
+#	then
+#    	python ../scripts/oop.py 'sam_barcoding' $OUTFILE_ALN $OUTFILE_BSAM
+#    	rm $OUTFILE_ALN
+#    	cp $OUTFILE_BSAM $OUTFILE_ALN
+#	else
+#    	echo 'Barcoding of sam already performed'
+#    fi
+#fi
+#
 
-cd ../annotated
 # Convert from BAM to SAM | annotate hits to genes, treating them as nonstranded, mode = union
-SUFFIX=$NEWSUFFIX
-NEWSUFFIX='_count_'$REFBASE'.csv'
-ALNFILE='../aligned/'$OUTFILE_ALN
-GTFFILE='../references/'$REFBASE'.gff'
-COUNTFILE=$(basename "$ALNFILE" '_aln_'$REFBASE'.sam')$NEWSUFFIX
+OUTFILE_ALN_BASE=$(basename "${OUTFILE_ALN%.*}")
+OUTFILE_COUNTS=$ANNOTATED_DIR"/"$OUTFILE_ALN_BASE"_counts_"$FEATURES_FILE_BASE".csv"
+ANNOTATED_FILE=$ANNOTATED_DIR"/"$OUTFILE_ALN_BASE"_annotated_"$FEATURES_FILE_BASE".sam"
 
-if [ ! -f $COUNTFILE ]
-then
-	echo "doesn't exist"
-	#samtools view OUTFILE_GENOME | 
-	htseq-count -t 'exon' -s no -q -i 'ID' $ALNFILE $GTFFILE > $COUNTFILE 
-	#| sort -n -k 2 -r | tee $COUNTFILE
+
+if [[ ! -f $OUTFILE_COUNTS ]] && [[ ! -f $ANNOTATED_FILE ]]; then
+    echo -e "\nStarted annotation of alignment at $(date)." | tee -a $LOG_FILE 1>&2
+    CL="samtools view $OUTFILE_ALN | htseq-count -o $ANNOTATED_FILE -t exon -s no -q -i 'ID' - $FEATURES_FILE_ABSPATH | sort -n -k 2 -r > $OUTFILE_COUNTS"
+    echo -e "Executing command line:\n\t$CL" | tee -a $LOG_FILE 1>&2
+    eval $CL 2>>$LOG_FILE
+else
+    echo -e "\nhtseq-count already performed: counts file\n\t$OUTFILE_COUNTS\nand annotated sam file\n\t$ANNOTATED_FILE\nboth exist." | tee -a $LOG_FILE 1>&2
 fi
+
+
+
+#if [ ! -f $COUNTFILE ]
+#then
+#	echo "doesn't exist"
+	#samtools view OUTFILE_GENOME | 
+#	htseq-count -t 'exon' -s no -q -i 'ID' $ALNFILE $GTFFILE > $COUNTFILE 
+	#| sort -n -k 2 -r | tee $COUNTFILE
+#fi
 
 # Perform barcoded gene count
-if [ $BARCODED == 'barcoded' ]
-then
-	SUFFIX=$NEWSUFFIX
-	NEWSUFFIX='_count_'$REFBASE'_barcoded.csv'
-	OUTFILE_BSAM=$(basename "$COUNTFILE" $SUFFIX)$NEWSUFFIX
-	if [ ! -f $OUTFILE_BSAM ]
-	then
-    	python ../scripts/oop.py 'sam_annotation' $COUNTFILE $OUTFILE_BSAM $GTFFILE
-	else
-    	echo 'Barcoding of sam already performed'
-    fi
-fi
-
+#if [ $BARCODED == 'barcoded' ]
+#then
+#	SUFFIX=$NEWSUFFIX
+#	NEWSUFFIX='_count_'$REFBASE'_barcoded.csv'
+#	OUTFILE_BSAM=$(basename "$COUNTFILE" $SUFFIX)$NEWSUFFIX
+#	if [ ! -f $OUTFILE_BSAM ]
+#	then
+#    	python ../scripts/oop.py 'sam_annotation' $COUNTFILE $OUTFILE_BSAM $GTFFILE
+#	else
+#    	echo 'Barcoding of sam already performed'
+#    fi
+#fi
+#
 
 
 # Plot Size distribution of each library
@@ -258,7 +257,4 @@ fi
 #GTFFILE
 #COUNTFILE
 
-#python initialplots.py > 
-
-
-  
+#python initialplots.py >
