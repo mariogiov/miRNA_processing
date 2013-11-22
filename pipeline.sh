@@ -1,12 +1,11 @@
 #!/bin/bash
 
-# USAGE
-# <scriptname> input_fastq_file REFERENCE_GENOME ANNOTATION_FILE
-function print_usage { echo "Usage: -s <SEQUENCE_FILE> -g <GENOME_REFERENCE FILE (fasta)> -f <GENOME_FEATURE_FILE (gtf/gff)> -w <WORKING_DIRECTORY> -n <CORES>." >&2 ; }
-
 # TODO this probably breaks with gzipped files what with the extension determination
 #      maybe easiest just to decompress them first?
 # TODO add -f flag to overwrite existing files/directory
+
+
+function print_usage { echo "Usage: -s <SEQUENCE_FILE> -g <GENOME_REFERENCE FILE (fasta)> -f <GENOME_FEATURE_FILE (gtf/gff)> -w <WORKING_DIRECTORY> -n <CORES>." >&2 ; }
 
 # GET INPUT
 while getopts ":s:g:f:w:n:" opt; do
