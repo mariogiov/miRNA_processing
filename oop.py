@@ -140,7 +140,7 @@ class Plots:
 	#plots a histogram of 'sets' and saves to 'out_handle'
 	def histogram(self):
 		pylab.hist(self.sets, bins=1)
-		xpylab.xlabel(self.xlabel)
+		pylab.xlabel(self.xlabel)
 		pylab.ylabel(self.ylabel)
 		pylab.title(self.title)
 		pylab.savefig(self.out_handle)
