@@ -163,9 +163,8 @@ module load samtools
 
 # ADAPTER TRIMMING
 # Remove 3' adapter sequences, discarding reads shorter than $MIN_SEQ_LENGTH
-PRESUFFIX='_trimmed'
 INFILE_CUTADAPT=$INPUTFILE_ABSPATH
-OUTFILE_CUTADAPT=$SEQDATA_DIR"/"$INPUTFILE_BASE$PRESUFFIX"."$INPUTFILE_EXTENSION
+OUTFILE_CUTADAPT=$SEQDATA_DIR"/"$INPUTFILE_BASE"_trimmed."$INPUTFILE_EXTENSION
 # TruSeq adapter sequence "TGGAATTCTCGGGTGCCAAGG"
 ADAPTER="TGGAATTCTCGGGTGCCAAGG"
 MIN_SEQ_LENGTH='18'
@@ -187,7 +186,9 @@ OUTFILE_ALN=$ALIGNED_DIR"/"$INPUTFILE_BASE"_aln_"$REFERENCE_BASE".sam"
 if [[ ! -f $OUTFILE_ALN ]]; then
     echo -e "\nStarted bowtie2 alignment at $(date)." | tee -a $LOG_FILE 1>&2
     # Need some kinda tricky redirection I guess for this to send stderr to a file but stdout to samtools?
-    bowtie2 -N 1 -L 18 -p $NUM_CORES -x $REFERENCE_DIR'/'$REFERENCE_BASE $INFILE_ALN | samtools view -S -b - > $OUTFILE_ALN 2>$LOG_FILE
+    CL="bowtie2 -N 1 -L 18 -p $NUM_CORES -x $REFERENCE_DIR'/'$REFERENCE_BASE $INFILE_ALN | samtools view -S -b - > $OUTFILE_ALN 2>$LOG_FILE"
+    echo "Executing alignment command: $CL" | tee $LOG_FILE
+    eval $CL
 else
     echo -e "\nAlignment of $(basename $INFILE_ALN) to $(basename $REFERENCE_ABSPATH) already performed:\n$(basename $OUTFILE_ALN) already exists." | tee -a $LOG_FILE 1>&2
 fi
