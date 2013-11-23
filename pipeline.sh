@@ -47,14 +47,8 @@ if [[ ! $SEQ_FILE ]]; then
     exit 1;
 fi
 
-if [[ $GENOME_REF ]] || [[ $FEATURES_FILE ]]; then
-    [[ $GENOME_REF ]] || echo "Warning: no genome reference file (-r) specified; will not perform alignment." 1>&2
-    [[ $FEATURES_FILE ]] || echo "Warning: no genome feature file (-g) specified; will not perform annotation or feature counting." 1>&2
-else
-    echo "No genome reference file (-r) or genome feature file (-g) specified; nothing to do. Exiting." 1>&2
-    print_usage
-    exit
-fi
+[[ $GENOME_REF ]] || echo "Warning: no genome reference file (-r) specified; will not perform alignment." 1>&2
+[[ $FEATURES_FILE ]] || echo "Warning: no genome feature file (-g) specified; will not perform annotation or feature counting." 1>&2
 
 for file in $SEQ_FILE $GENOME_REF $FEATURES_FILE; do
     if [[ ! -e $file ]]; then
@@ -85,6 +79,8 @@ else
     WORK_DIR=$PWD
 fi
 
+echo "WORK_DIR is $WORK_DIR"
+exit
 
 # INPUT / DIRECTORY TREE CONSTRUCTION
 
@@ -121,6 +117,7 @@ LOG_DIR=$WORK_DIR"/logs/"
 SEQDATA_DIR=$WORK_DIR"/seqdata/"
 ALIGNED_DIR=$WORK_DIR"/aligned/"
 ANNOTATED_DIR=$WORK_DIR"/annotated/"
+VIS_DIR=$WORK_DIR"/visualization/"
 LOG_FILE=$LOG_DIR/$INPUTFILE_BASE"_"$DATE".log"
 for dir in $LOG_DIR $SEQDATA_DIR $ALIGNED_DIR $ANNOTATED_DIR; do
     if [[ $(mkdir -p $dir) -ne 0 ]]; then
@@ -226,6 +223,10 @@ else
     echo -e "\nhtseq-count already performed: counts file\n\t$OUTFILE_COUNTS\nand annotated sam file\n\t$ANNOTATED_FILE\nboth exist." | tee -a $LOG_FILE 1>&2
 fi
 
+
+# Plot read length distribution
+echo -e "\nCreating read length distribution plot for $OUTFILE_CUTADAPT." | tee -a $LOG_FILE 1>&2
+python $PWD/plots.py -i $OUTFILE_CUTADAPT -d $VIS_DIR
 
 
 #if [ ! -f $COUNTFILE ]
