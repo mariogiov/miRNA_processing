@@ -7,11 +7,10 @@
 
 function print_usage { echo "Usage: -s <SEQUENCE_FILE> -g <GENOME_REFERENCE FILE (fasta)> -f <GENOME_FEATURE_FILE (gtf/gff)> -w <WORKING_DIRECTORY> -n <CORES>." >&2 ; }
 
-function readlink_os() { echo "THIS DIDN'T WORK"; }
-
 case $(uname -s) in
     Linux)
-        function readlink_os() { FULL_PATH=$(readlink -f $1); echo $FULL_PATH; }
+        function readlink_os() { FULL_PATH=$(readlink_os $1); echo $FULL_PATH; }
+        function get_num_cores() { echo $(nproc); }
         ;;
     Darwin)
         function readlink_os() {
@@ -29,16 +28,13 @@ case $(uname -s) in
             PHYS_DIR=`pwd -P`
             RESULT=$PHYS_DIR/$RL_FILE_NAME
             echo $RESULT
-            echo "DARWIN!!"
         }
+        function get_num_cores() { echo $(sysctl -n hw.ncpu); }
         ;;
     *)
         echo "Unsupported OS: $(uname -s). You should try Linux out, pal."
         ;;
 esac
-
-OUTPUT=$(readlink_os $1)
-echo "Full file path is $OUTPUT"
 
 
 # GET INPUT
@@ -94,7 +90,13 @@ for file in $SEQ_FILE $GENOME_REF $FEATURES_FILE; do
     fi
 done
 
-SYS_CORES=$(nproc)
+
+SYS_CORES=$(get_num_cores)
+if [[ ! $NUM_CORES ]]; then
+    NUM_CORES=1
+fi
+
+
 if [[ $NUM_CORES =~ ^[0-9]+$ ]]; then
     if [[ $NUM_CORES -gt $SYS_CORES ]]; then
         echo "Number of cores specified ($NUM_CORES) greater than number of cores available ($SYS_CORES). Setting to maximum $SYS_CORES." 1>&2
@@ -107,19 +109,17 @@ fi
 
 
 if [[ $WORK_DIR ]]; then
-    WORK_DIR=$(readlink -f $WORK_DIR)
+    WORK_DIR=$(readlink_os $WORK_DIR)
 else
     echo "Info:    no working directory (-d) specified; using '$PWD'" 1>&2
     WORK_DIR=$PWD
 fi
 
-echo "WORK_DIR is $WORK_DIR"
-exit
 
 # INPUT / DIRECTORY TREE CONSTRUCTION
 
 INPUTFILE=$(basename $SEQ_FILE)
-INPUTFILE_ABSPATH=$(readlink -f $SEQ_FILE)
+INPUTFILE_ABSPATH=$(readlink_os $SEQ_FILE)
 INPUTFILE_DIR=$(dirname $INPUTFILE_ABSPATH)
 INPUTFILE_BASE="${INPUTFILE%.*}"
 INPUTFILE_EXTENSION="${INPUTFILE##*.}"
@@ -131,14 +131,14 @@ INPUTFILE_EXTENSION="${INPUTFILE##*.}"
 
 if [[ $GENOME_REF ]]; then
     REFERENCE=$(basename $GENOME_REF)
-    REFERENCE_ABSPATH=$(readlink -f $GENOME_REF)
+    REFERENCE_ABSPATH=$(readlink_os $GENOME_REF)
     REFERENCE_DIR=$(dirname $REFERENCE_ABSPATH)
     REFERENCE_BASE="${REFERENCE%.*}"
     REFERENCE_EXTENSION="${REFERENCE##*.}"
 fi
 
 if [[ $FEATURES_FILE ]]; then
-    FEATURES_FILE_ABSPATH=$(readlink -f $FEATURES_FILE)
+    FEATURES_FILE_ABSPATH=$(readlink_os $FEATURES_FILE)
     FEATURES_FILE=$(basename $FEATURES_FILE)
     FEATURES_FILE_DIR=$(dirname $FEATURES_FILE_ABSPATH)
     FEATURES_FILE_BASE="${FEATURES_FILE%.*}"
@@ -260,6 +260,8 @@ fi
 
 # Plot read length distribution
 echo -e "\nCreating read length distribution plot for $OUTFILE_CUTADAPT." | tee -a $LOG_FILE 1>&2
+echo -e "Input file is $OUTFILE_CUTADAPT"
+echo -e "Output file into $VIS_DIR"
 python $PWD/plots.py -i $OUTFILE_CUTADAPT -d $VIS_DIR
 
 
