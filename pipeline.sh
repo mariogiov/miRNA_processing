@@ -7,6 +7,40 @@
 
 function print_usage { echo "Usage: -s <SEQUENCE_FILE> -g <GENOME_REFERENCE FILE (fasta)> -f <GENOME_FEATURE_FILE (gtf/gff)> -w <WORKING_DIRECTORY> -n <CORES>." >&2 ; }
 
+function readlink_os() { echo "THIS DIDN'T WORK"; }
+
+case $(uname -s) in
+    Linux)
+        function readlink_os() { FULL_PATH=$(readlink -f $1); echo $FULL_PATH; }
+        ;;
+    Darwin)
+        function readlink_os() {
+            RL_FILE_NAME=$1
+            cd `dirname $RL_FILE_NAME`
+            RL_FILE_NAME=`basename $RL_FILE_NAME`
+            # Iterate down a (possible) chain of symlinks
+            while [ -L "$RL_FILE_NAME" ]; do
+                RL_FILE_NAME=`readlink $RL_FILE_NAME`
+                cd `dirname $RL_FILE_NAME`
+                RL_FILE_NAME=`basename $RL_FILE_NAME`
+            done
+            # Compute the canonicalized name by finding the physical path·
+            # for the directory we're in and appending the target file.
+            PHYS_DIR=`pwd -P`
+            RESULT=$PHYS_DIR/$RL_FILE_NAME
+            echo $RESULT
+            echo "DARWIN!!"
+        }
+        ;;
+    *)
+        echo "Unsupported OS: $(uname -s). You should try Linux out, pal."
+        ;;
+esac
+
+OUTPUT=$(readlink_os $1)
+echo "Full file path is $OUTPUT"
+
+
 # GET INPUT
 while getopts ":s:g:f:w:n:" opt; do
     case $opt in
