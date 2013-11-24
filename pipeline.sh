@@ -33,6 +33,7 @@ case $(uname -s) in
         ;;
     *)
         echo "Unsupported OS: $(uname -s). You should try Linux out, pal."
+        exit 1
         ;;
 esac
 
@@ -83,10 +84,10 @@ fi
 for file in $SEQ_FILE $GENOME_REF $FEATURES_FILE; do
     if [[ ! -e $file ]]; then
         echo "File does not exist: $file" 1>&2
-        exit
+        exit 1
     elif [[ ! -r $file ]]; then
         echo "File cannot be read: $file" 1>&2
-        exit
+        exit 1
     fi
 done
 
@@ -156,7 +157,7 @@ LOG_FILE=$LOG_DIR/$INPUTFILE_BASE"_"$DATE".log"
 for dir in $LOG_DIR $SEQDATA_DIR $ALIGNED_DIR $ANNOTATED_DIR $VIS_DIR; do
     if [[ $(mkdir -p $dir) -ne 0 ]]; then
         echo "Cannot create directory $dir; exiting." | tee 1>&2
-        exit
+        exit 1
     fi
 done
 
