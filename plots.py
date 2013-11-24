@@ -10,6 +10,7 @@ def hist_readlen(seq_file, output_name=None, output_dir=None):
     """Plots a histogram of read lengths from a fastq file.
     """
 
+    seq_file, output_dir = [ os.path.realpath(path) for path in seq_file, output_dir ]
     seq_file_name, seq_file_ext = os.path.splitext( os.path.basename(seq_file) )
 
     # Find the first header line
@@ -45,5 +46,4 @@ if __name__=="__main__":
     parser.add_argument("-n", "--output-name", dest="output_name", default=None,  help="The name to use for the output file. Default same name as input file.")
 
     args = vars(parser.parse_args())
-    #hist_readlen(input_file], args[output_name], args[output_dir])
     hist_readlen(**args)
