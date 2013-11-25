@@ -5,18 +5,18 @@
 # TODO add -f flag to overwrite existing files/directory
 
 
-function print_usage { echo "Usage: -s <SEQUENCE_FILE> [-g <GENOME_REFERENCE FILE (fasta)>] [-f <GENOME_FEATURE_FILE (gtf/gff)>] [-w <WORKING_DIRECTORY>] [-m <MIRBASE_FILE>] [-n <CORES>]" >&2 ; }
+function print_usage { echo "Usage: -s <SEQUENCE_FILE> [-f (overwrite existing files)] [-r <GENOME_REFERENCE FILE (fasta)>] [-g <GENOME_FEATURE_FILE (gtf/gff)>] [-w <WORKING_DIRECTORY>] [-m <MIRBASE_FILE>] [-n <CORES>]" >&2 ; }
 
 # GET INPUT
-while getopts ":s:g:f:w:m:n:" opt; do
+while getopts ":s:r:g:w:m:n:f" opt; do
     case $opt in
         s)
             SEQ_FILE=$OPTARG
             ;;
-        g)
+        r)
             GENOME_REF=$OPTARG
             ;;
-        f)
+        g)
             FEATURES_FILE=$OPTARG
             ;;
         w)
@@ -27,6 +27,9 @@ while getopts ":s:g:f:w:m:n:" opt; do
             ;;
         n)
             NUM_CORES=$OPTARG
+            ;;
+        f)
+            FORCE_OVERWRITE=1
             ;;
         :)
             echo "Option -$OPTARG requires an argument." 1>&2
@@ -186,7 +189,7 @@ OUTFILE_CUTADAPT=$SEQDATA_DIR"/"$INPUTFILE_BASE"_trimmed."$INPUTFILE_EXTENSION
 # TruSeq adapter sequence "TGGAATTCTCGGGTGCCAAGG"
 ADAPTER="TGGAATTCTCGGGTGCCAAGG"
 MIN_SEQ_LENGTH='18'
-if [ ! -f $OUTFILE_CUTADAPT ]; then
+if [[ ! -f $OUTFILE_CUTADAPT ]] || [[ $FORCE_OVERWRITE ]]; then
     echo -e "Starting cutadapt trimming at $(date)." | tee -a $LOG_FILE 1>&2
     CL="cutadapt -f fastq -a $ADAPTER --match-read-wildcards -O 5 -m $MIN_SEQ_LENGTH --too-short-output=/dev/null -o $OUTFILE_CUTADAPT $INFILE_CUTADAPT"
     echo "Cutadapt command: $CL" | tee -a $LOG_FILE 1>&2
@@ -199,11 +202,11 @@ fi
 echo -e "\n\nALIGNMENT TO GENOME REFERENCE\n=============================" | tee -a $LOG_FILE 1>&2
 INFILE_ALN=$OUTFILE_CUTADAPT
 OUTFILE_ALN=$ALIGNED_DIR"/"$INPUTFILE_BASE"_aln_"$REFERENCE_BASE".sam"
-if [[ ! -f $OUTFILE_ALN ]]; then
+if [[ ! -f $OUTFILE_ALN ]]  || [[ $FORCE_OVERWRITE ]]; then
     echo -e "Started bowtie2 alignment to genome reference at $(date)." | tee -a $LOG_FILE 1>&2
     # Need some kinda tricky redirection I guess for this to send stderr to a file but stdout to samtools?
-    CL="bowtie2 -N 1 -L 18 -p $NUM_CORES -x $REFERENCE_DIR/$REFERENCE_BASE $INFILE_ALN | samtools view -S -b - > $OUTFILE_ALN 2>$LOG_FILE"
-    echo "Executing alignment command: $CL" | tee $LOG_FILE
+    CL="bowtie2 -N 1 -L 18 -p $NUM_CORES -x $REFERENCE_DIR/$REFERENCE_BASE $INFILE_ALN | samtools view -S -b - > $OUTFILE_ALN 2>>$LOG_FILE"
+    echo "Executing alignment command: $CL" | tee -a $LOG_FILE
     eval $CL
 else
     echo -e "Alignment of $(basename $INFILE_ALN) to $(basename $REFERENCE_ABSPATH) already performed:\n$(basename $OUTFILE_ALN)\nexists." | tee -a $LOG_FILE 1>&2
@@ -232,7 +235,7 @@ echo -e "\n\nANNOTATION\n==========" | tee -a $LOG_FILE 1>&2
 OUTFILE_ALN_BASE=$(basename "${OUTFILE_ALN%.*}")
 OUTFILE_COUNTS=$ANNOTATED_DIR"/"$OUTFILE_ALN_BASE"_counts_"$FEATURES_FILE_BASE".csv"
 ANNOTATED_FILE=$ANNOTATED_DIR"/"$OUTFILE_ALN_BASE"_annotated_"$FEATURES_FILE_BASE".sam"
-if [[ ! -f $OUTFILE_COUNTS ]] && [[ ! -f $ANNOTATED_FILE ]]; then
+if ( [[ ! -f $OUTFILE_COUNTS ]] || [[ $FORCE_OVERWRITE ]] ) && [[ ! -f $ANNOTATED_FILE ]]; then
     echo -e "Started annotation of alignment at $(date)." | tee -a $LOG_FILE 1>&2
     CL="samtools view $OUTFILE_ALN | htseq-count -o $ANNOTATED_FILE -t exon -s no -q -i 'ID' - $FEATURES_FILE_ABSPATH | sort -n -k 2 -r > $OUTFILE_COUNTS"
     echo -e "Executing command line:\n$CL" | tee -a $LOG_FILE 1>&2
@@ -245,10 +248,8 @@ fi
 echo -e "\n\nVISUALIZATION\n=============" | tee -a $LOG_FILE 1>&2
 # Plot read length distribution with matplotlib
 VIS_FILE_NAME=$VIS_DIR/$(basename $OUTFILE_CUTADAPT .fastq)"_readlength-histogram.png"
-if [[ ! -e $VIS_FILE_NAME ]]; then
+if [[ ! -f $VIS_FILE_NAME ]] || [[ $FORCE_OVERWRITE ]]; then
     echo -e "Creating read length distribution plot for $OUTFILE_CUTADAPT." | tee -a $LOG_FILE 1>&2
-    echo -e "Input file is $OUTFILE_CUTADAPT"
-    echo -e "Output file into $VIS_DIR"
     CL="python $SCRIPT_SELF_DIR/plots.py -i $OUTFILE_CUTADAPT -d $VIS_DIR"
     echo "Executing: $CL" | tee -a $LOG_FILE 1>&2
     eval $CL | tee -a $LOG_FILE 1>&2
@@ -261,14 +262,14 @@ if [[ $MIRBASE_FILE ]]; then
     echo -e "\n\nALIGNMENT TO MIRBASE\n====================" | tee -a $LOG_FILE 1>&2
     INFILE_ALN=$OUTFILE_CUTADAPT
     OUTFILE_ALN=$ALIGNED_DIR"/"$INPUTFILE_BASE"_aln_"$MIRBASE_BASE".sam"
-    if [[ ! -f $OUTFILE_ALN ]]; then
+    if [[ ! -f $OUTFILE_ALN ]] || [[ $FORCE_OVERWRITE ]]; then
         echo -e "Started bowtie2 alignment to miRBASE at $(date)." | tee -a $LOG_FILE 1>&2
         # Need some kinda tricky redirection I guess for this to send stderr to a file but stdout to samtools?
-        CL="bowtie2 -N 1 -L 18 -p $NUM_CORES -x $MIRBASE_DIR/$MIRBASE_BASE $INFILE_ALN | samtools view -S -b - > $OUTFILE_ALN 2>$LOG_FILE"
-        echo "Executing alignment command: $CL" | tee $LOG_FILE
+        CL="bowtie2 -N 1 -L 18 -p $NUM_CORES -x $MIRBASE_DIR/$MIRBASE_BASE $INFILE_ALN | samtools view -S -b - > $OUTFILE_ALN 2>>$LOG_FILE"
+        echo "Executing alignment command: $CL" | tee -a $LOG_FILE
         eval $CL
     else
-        echo -e "Alignment of $(basename $INFILE_ALN) to $MIRBASE_FILE already performed:\n$(basename $OUTFILE_ALN) already exists." | tee -a $LOG_FILE 1>&2
+        echo -e "Alignment of $(basename $INFILE_ALN) to $MIRBASE_FILE already performed:\n$(basename $OUTFILE_ALN)\nexists." | tee -a $LOG_FILE 1>&2
     fi
 fi
 
