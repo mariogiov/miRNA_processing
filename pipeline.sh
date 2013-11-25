@@ -125,20 +125,30 @@ for dir in $LOG_DIR $SEQDATA_DIR $ALIGNED_DIR $ANNOTATED_DIR $VIS_DIR; do
     fi
 done
 
+
 # MODULE LOADING
+source $HOME/.virtualenvs/python-276/bin/activate
+
 # Modules, activate the module command
-case "$0" in
+#if [[ $(hostname -s | grep milou) ]]; then
+case "$(basename $SHELL)" in
           -sh|sh|*/sh)  modules_shell=sh ;;
        -ksh|ksh|*/ksh)  modules_shell=ksh ;;
        -zsh|zsh|*/zsh)  modules_shell=zsh ;;
     -bash|bash|*/bash)  modules_shell=bash ;;
 esac
 module() { eval `/usr/local/Modules/$MODULE_VERSION/bin/modulecmd $modules_shell $*`; } 
-module load bioinfo-tools
-module load bowtie2
+#fi
+export PATH=$HOME/bin:$HOME/.local/bin:$PATH
+export LD_LIBRARY_PATH=$HOME/lib/
+export PYTHONPATH=$HOME/lib/python2.7/
+
+module unload python
+module load python/2.7.4
+module load bowtie2/2.1.0
 module load cutadapt
-module load htseq
-module load samtools
+#module load samtools
+export PATH=/proj/a2010002/nobackup/sw/mf/bioinfo-tools/samtools/0.1.19:$PATH
 
 # Jimmie barcoding experiments
 # Move barcode to header
