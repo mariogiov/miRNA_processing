@@ -53,10 +53,10 @@ fi
 for file in $SEQ_FILE $GENOME_REF $FEATURES_FILE; do
     if [[ ! -e $file ]]; then
         echo "File does not exist: $file" 1>&2
-        exit
+        exit 1
     elif [[ ! -r $file ]]; then
         echo "File cannot be read: $file" 1>&2
-        exit
+        exit 1
     fi
 done
 
@@ -79,8 +79,6 @@ else
     WORK_DIR=$PWD
 fi
 
-echo "WORK_DIR is $WORK_DIR"
-exit
 
 # INPUT / DIRECTORY TREE CONSTRUCTION
 
@@ -119,10 +117,10 @@ ALIGNED_DIR=$WORK_DIR"/aligned/"
 ANNOTATED_DIR=$WORK_DIR"/annotated/"
 VIS_DIR=$WORK_DIR"/visualization/"
 LOG_FILE=$LOG_DIR/$INPUTFILE_BASE"_"$DATE".log"
-for dir in $LOG_DIR $SEQDATA_DIR $ALIGNED_DIR $ANNOTATED_DIR; do
+for dir in $LOG_DIR $SEQDATA_DIR $ALIGNED_DIR $ANNOTATED_DIR $VIS_DIR; do
     if [[ $(mkdir -p $dir) -ne 0 ]]; then
         echo "Cannot create directory $dir; exiting." | tee 1>&2
-        exit
+        exit 1
     fi
 done
 
@@ -226,7 +224,11 @@ fi
 
 # Plot read length distribution
 echo -e "\nCreating read length distribution plot for $OUTFILE_CUTADAPT." | tee -a $LOG_FILE 1>&2
-python $PWD/plots.py -i $OUTFILE_CUTADAPT -d $VIS_DIR
+echo -e "Input file is $OUTFILE_CUTADAPT"
+echo -e "Output file into $VIS_DIR"
+CL="python $PWD/plots.py -i $OUTFILE_CUTADAPT -d $VIS_DIR"
+echo "Executing: $CL" | tee -a $LOG_FILE 1>&2
+eval $CL | tee -a $LOG_FILE 1>&2
 
 
 #if [ ! -f $COUNTFILE ]
