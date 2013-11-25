@@ -79,6 +79,7 @@ else
     WORK_DIR=$PWD
 fi
 
+SCRIPT_SELF_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
 # INPUT / DIRECTORY TREE CONSTRUCTION
 
@@ -226,7 +227,7 @@ fi
 echo -e "\nCreating read length distribution plot for $OUTFILE_CUTADAPT." | tee -a $LOG_FILE 1>&2
 echo -e "Input file is $OUTFILE_CUTADAPT"
 echo -e "Output file into $VIS_DIR"
-CL="python $PWD/plots.py -i $OUTFILE_CUTADAPT -d $VIS_DIR"
+CL="python $SCRIPT_SELF_DIR/plots.py -i $OUTFILE_CUTADAPT -d $VIS_DIR"
 echo "Executing: $CL" | tee -a $LOG_FILE 1>&2
 eval $CL | tee -a $LOG_FILE 1>&2
 
