@@ -41,13 +41,40 @@ function exists_is_readable () {
 # decompress_file()
 function decompress_file () {
     if [[ $(file $1 | grep gzip ) ]]; then
-        echo -e "Info:\t\tinput file \"$1\" is compressed; decompressing..." | tee -a $LOG_FILE 1>&2
-        gzip -d $1
-        echo "${1%.*}"
+        # If file is compressed
+        echo -e "Info:\t\tinput file \"$1\" is compressed; decompressing..." 1>&2
+        DF_OUTPUT_NAME=$(basename "${1%.*}")
+        if [[ $2 ]]; then
+            # If output directory is passed, decompress to alternate output directory
+            if [[ ! $(mkdir -p $2) -eq 0 ]]; then
+                echo -e "Warning:\t\toutput directory \"$2\" could not be created. Decompressing to PWD \"$PWD\"." 1>&2
+                OUTPUT_DIR=$PWD
+            else
+                OUTPUT_DIR=$(readlink -f $2)
+            fi
+            echo -en "Info:\t\tgunzipping file \"$1\" to \"$OUTPUT_DIR/$DF_OUTPUT_NAME\"..." >&2
+            gunzip -c $1 >> $OUTPUT_DIR/$DF_OUTPUT_NAME
+            if [[ ! $? -eq 0 ]]; then
+                echo -e "Error:\t\tcouldn't decompress file $1 to output directory \"$2\"." 1>&2
+                return 1
+            else
+                echo " done." 1>&2
+            fi
+            echo $OUTPUT_DIR/$DF_OUTPUT_NAME
+        else
+            # Else unzip in place
+            gzip -d $1
+            if [[ ! $? -eq 0 ]]; then
+                echo -e "Error:\t\tcouldn't decompress file $1." 1>&2
+                return 1
+            fi
+            echo $DF_OUTPUT_NAME
+        fi
         return 0
     else
+        # No compression needed -- file not compressed
         echo $1
-        return 1
+        return 0
     fi
 }
 
@@ -141,12 +168,12 @@ fi
 LOG_DIR=$WORK_DIR"/logs/"
 SEQDATA_DIR=$WORK_DIR"/seqdata/"
 ALIGNED_DIR=$WORK_DIR"/aligned/"
-ANNOTATED_DIR=$WORK_DIR"/annotated/"
+[[ $FEATURES_FILE ]] && ANNOTATED_DIR=$WORK_DIR"/annotated/"
 VIS_DIR=$WORK_DIR"/visualization/"
-LOG_FILE=$LOG_DIR/$INPUTFILE_BASE"_"$DATE".log"
-for dir in $LOG_DIR $SEQDATA_DIR $ALIGNED_DIR $ANNOTATED_DIR $VIS_DIR; do
+#LOG_FILE=$LOG_DIR/$INPUTFILE_BASE"_"$DATE".log"
+for dir in $LOG_DIR $SEQDATA_DIR $ALIGNED_DIR $VIS_DIR $ANNOTATED_DIR; do
     if [[ $(mkdir -p $dir) -ne 0 ]]; then
-        echo -e "Fatal:\t\tcannot create directory $dir; exiting." | tee 1>&2
+        echo -e "Fatal:\t\tcannot create directory $dir; exiting." 1>&2
         exit 1
     fi
 done
@@ -155,59 +182,57 @@ done
 
 
 # GET/CHECK POSITIONAL ARGS (INPUT FILES)
-#if [[ $OPTIND > ${#@} ]]; then
-#    echo -e "Fatal:\t\tno sequence files passed as positional arguments (must be passed at the end of the line)." 1>&2
-#    print_usage
-#    exit 1
-#elif [[ $OPTIND == ${#@} ]]; then
 if [[ $OPTIND == ${#@} ]]; then
-    TMP_FILE=$1
+    TMP_FILE="${@:$OPTIND:1}"
     if [[ ! $( exists_is_readable $TMP_FILE ) ]]; then
-        echo "Fatal:\t\t\"$TMP_FILE\": "$FILE_NOT_EXISTS_OR_NOT_READABLE_ERROR_TEXT
+        echo -e "Fatal:\t\t\"$TMP_FILE\": "$FILE_NOT_EXISTS_OR_NOT_READABLE_ERROR_TEXT 1>&2
         exit 1
     fi
 
-    TMP_FILE=$(decompress_file $1)
-    
-    if [[ ! $( extension_is_fastq $TMP_FILE ) ]]; then
-        echo "Fatal:\t\t\"$TMP_FILE\": "$NOT_FASTQ_ERROR_TEXT
+    TMP_FILE=$(decompress_file $1 $SEQDATA_DIR)
+    if not [[ $TMP_FILE ]]; then
+        echo "Fatal:\t\tunhandled error when decompressing file \"$1\"; exiting." 1>&2
+        exit 1
+    fi
+
+    if [[ ! $( extension_is_fastq $( basename $TMP_FILE) ) ]]; then
+        echo "Fatal:\t\t\"$( basename $TMP_FILE)\": "$NOT_FASTQ_ERROR_TEXT 1>&2
         exit 1
     fi
     
     SEQ_FILE=$TMP_FILE
-    echo "One file, \$SEQ_FILE is $SEQ_FILE"
+    echo "One file, \$SEQ_FILE is $SEQ_FILE" 1>&2
+
 else
     # If more than one positional argument is passed, they must be merged
-    #cp $1 $seq_dir/$MERGE_FILE_NAME
     for (( i=$OPTIND; i <= ${#@}; i++ )) {
         TMP_FILE="${@:$i:1}"
-        TMP_FILE=$(decompress_file $TMP_FILE)
+        TMP_FILE=$(decompress_file $TMP_FILE $SEQDATA_DIR)
         if [[ ! $( exists_is_readable $TMP_FILE ) ]]; then
-            echo -e "Error:\t\tskipping file \"$TMP_FILE\": "$FILE_NOT_EXISTS_OR_NOT_READABLE_ERROR_TEXT
+            echo -e "Error:\t\tskipping file \"$TMP_FILE\": "$FILE_NOT_EXISTS_OR_NOT_READABLE_ERROR_TEXT 1>&2
             continue
         fi
         if [[ ! $( extension_is_fastq $TMP_FILE ) ]]; then
-            echo -e "Error:\t\tskipping file \"$TMP_FILE\": "$NOT_FASTQ_ERROR_TEXT
+            echo -e "Error:\t\tskipping file \"$TMP_FILE\": "$NOT_FASTQ_ERROR_TEXT 1>&2
             continue
         fi
 
         if [[ ! $MERGE_FILE_NAME ]]; then
-            MERGE_FILE_NAME="${TMP_FILE%.*}_merged.${TMP_FILE##*.}"
+            MERGE_FILE_NAME=$(basename "${TMP_FILE%.*}_merged.${TMP_FILE##*.}")
             MERGE_FILE_ABSPATH=$SEQDATA_DIR"/"$MERGE_FILE_NAME
         fi
 
+        echo -en "Info:\t\tConcatenating \"$TMP_FILE\" to merge file \"$MERGE_FILE_ABSPATH\"..." 1>&2
         cat $TMP_FILE >> $MERGE_FILE_ABSPATH
-        less $MERGE_FILE_ABSPATH
+        echo " done." 1>&2
     }
     if [[ $MERGE_FILE_ABSPATH ]]; then
         SEQ_FILE=$MERGE_FILE_ABSPATH
-        echo "Multiple files, final merged file is at $SEQ_FILE" >&2
+        #echo "Multiple files, final merged file is at $SEQ_FILE" >&2
     else
         echo -e "Fatal:\t\tno valid input files found. Exiting." 1>&2
     fi
 fi
-
-exit
 
 
 # INPUT FILE NAME HANDLES
@@ -244,6 +269,8 @@ if [[ $MIRBASE_FILE ]]; then
 fi
 
 
+# LOG FILE
+LOG_FILE=$LOG_DIR/$INPUTFILE_BASE"_"$DATE".log"
 
 
 # MODULE LOADING
@@ -299,7 +326,7 @@ if [[ ! -f $OUTFILE_CUTADAPT ]] || [[ $FORCE_OVERWRITE ]]; then
     echo -e "Starting cutadapt trimming at $(date)." | tee -a $LOG_FILE 1>&2
     CL="cutadapt -f fastq -a $ADAPTER --match-read-wildcards -O 5 -m $MIN_SEQ_LENGTH --too-short-output=/dev/null -o $OUTFILE_CUTADAPT $INFILE_CUTADAPT"
     echo "Cutadapt command: $CL" | tee -a $LOG_FILE 1>&2
-    eval $CL 2>&1 | tee -a $LOG_FILE
+    eval $CL #2>&1 | tee -a $LOG_FILE
 else
     echo -e "cutadapt adapter trimming already performed on $(basename $INFILE_CUTADAPT):\noutput file $(basename $OUTFILE_CUTADAPT)\nexists." | tee -a $LOG_FILE 1>&2
 fi
