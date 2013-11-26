@@ -9,7 +9,7 @@ function print_usage { echo "Usage: -s <SEQUENCE_FILE> -g <GENOME_REFERENCE FILE
 
 case $(uname -s) in
     Linux)
-        function readlink_os() { FULL_PATH=$(readlink_os $1); echo $FULL_PATH; }
+        function readlink_os() { FULL_PATH=$(readlink -f $1); echo $FULL_PATH; }
         function get_num_cores() { echo $(nproc); }
         ;;
     Darwin)
