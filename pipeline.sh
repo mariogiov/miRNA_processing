@@ -1,8 +1,7 @@
 #!/bin/bash
 
-# TODO this probably breaks with gzipped files what with the extension determination -- maybe easiest just to decompress them first?
 # TODO the concatenation of input fastq files to merge will cause the python script to break if there is a frameshift e.g. from extra headers
-
+# TODO it would be good to log the file rigamarole to know when decompression fails or if files are not readable, etc.
 
 # DEFINE FUNCTIONS
 
@@ -270,7 +269,8 @@ fi
 
 
 # LOG FILE
-LOG_FILE=$LOG_DIR/$INPUTFILE_BASE"_"$DATE".log"
+LOG_FILE=$LOG_DIR/$INPUTFILE_BASE"_"$DATETIME".log"
+echo $0 $@ > $LOG_FILE
 
 
 # MODULE LOADING
