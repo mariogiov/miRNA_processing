@@ -1,18 +1,62 @@
 #!/bin/bash
 
-# TODO this probably breaks with gzipped files what with the extension determination
-#      maybe easiest just to decompress them first?
-# TODO add -f flag to overwrite existing files/directory
+# TODO this probably breaks with gzipped files what with the extension determination -- maybe easiest just to decompress them first?
+# TODO the concatenation of input fastq files to merge will cause the python script to break if there is a frameshift e.g. from extra headers
 
 
-function print_usage { echo "Usage: -s <SEQUENCE_FILE> [-f (overwrite existing files)] [-r <GENOME_REFERENCE FILE (fasta)>] [-g <GENOME_FEATURE_FILE (gtf/gff)>] [-w <WORKING_DIRECTORY>] [-m <MIRBASE_FILE>] [-n <CORES>]" >&2 ; }
+# DEFINE FUNCTIONS
+
+# print_usage()
+function print_usage { echo -e "\nUsage:\t$0\n\t\t[-r <genome_reference_file> (FASTA)>]\n\t\t[-g <genome_feature_file (GTF/GFF)>]\n\t\t[-m <mirbase_file (FASTA)>]\n\t\t[-w <working_directory>]\n\t\t[-f (overwrite existing files)]\n\t\t[-n <cores>]\n\t\t<sequence_file> [<additional_sequence_files> <will_be_merged> <before_processing>]" >&2 ; }
+
+# extension_is_fastq()
+NOT_FASTQ_ERROR_TEXT="input file is not in fastq format (doesn't end with .fastq or .fq)"
+function extension_is_fastq () {
+    TIF_EXT="${1##*.}"
+    if ( [[ $TIF_EXT == "fq" ]] || [[ $TIF_EXT == "fastq" ]] ); then
+        echo $TIF_EXT
+        return 0
+    else
+        return 1
+    fi
+}
+
+# exists_is_readable()
+FILE_NOT_EXISTS_OR_NOT_READABLE_ERROR_TEXT="file does not exist or is not readable"
+function exists_is_readable () {
+#for file in $SEQ_FILE $GENOME_REF $FEATURES_FILE $MIRBASE_FILE; do
+    if [[ ! -e $1 ]]; then
+        #echo "Error: file does not exist: $1" 1>&2
+        return 1
+    elif [[ ! -r $1 ]]; then
+        #echo "Error: file cannot be read: $1" 1>&2
+        return 1
+    else
+        echo "$1"
+        return 0
+    fi
+#done
+}
+
+# decompress_file()
+function decompress_file () {
+    if [[ $(file $1 | grep gzip ) ]]; then
+        echo -e "Info:\t\tinput file \"$1\" is compressed; decompressing..." | tee -a $LOG_FILE 1>&2
+        gzip -d $1
+        echo "${1%.*}"
+        return 0
+    else
+        echo $1
+        return 1
+    fi
+}
+
+
+
 
 # GET INPUT
-while getopts ":s:r:g:w:m:n:f" opt; do
+while getopts ":r:g:w:m:n:fh" opt; do
     case $opt in
-        s)
-            SEQ_FILE=$OPTARG
-            ;;
         r)
             GENOME_REF=$OPTARG
             ;;
@@ -31,6 +75,10 @@ while getopts ":s:r:g:w:m:n:f" opt; do
         f)
             FORCE_OVERWRITE=1
             ;;
+        h)
+            print_usage
+            exit
+            ;;
         :)
             echo "Option -$OPTARG requires an argument." 1>&2
             print_usage
@@ -45,60 +93,131 @@ while getopts ":s:r:g:w:m:n:f" opt; do
 done
 
 
-# CHECK INPUTS
+# CONSTANTS
+DATETIME=$(date "+%Y%m%d_%X")
+SYS_CORES=$(nproc)
 
-if [[ ! $SEQ_FILE ]]; then
-    echo "Must specify input sequence file (-s)." 1>&2
+# CHECK FOR PRESENCE OF POSITIONAL ARGUMENTS (further checks later)
+if [[ $OPTIND > ${#@} ]]; then
+    echo -e "Fatal:\t\tno sequence files passed as positional arguments (must be passed at the end of the line)." 1>&2
     print_usage
-    exit 1;
+    exit 1
 fi
 
-[[ $GENOME_REF ]] || echo "Warning: no genome reference file (-r) specified; will not perform alignment." 1>&2
-[[ $FEATURES_FILE ]] || echo "Warning: no genome feature file (-g) specified; will not perform annotation or feature counting." 1>&2
+# CHECK INPUT FROM FLAGS
+[[ $GENOME_REF ]] || echo -e "Warning:\tno genome reference file (-r) specified; will not perform alignment." 1>&2
+[[ $FEATURES_FILE ]] || echo -e "Warning:\tno genome feature file (-g) specified; will not perform annotation or feature counting." 1>&2
 
-for file in $SEQ_FILE $GENOME_REF $FEATURES_FILE $MIRBASE_FILE; do
-    if [[ ! -e $file ]]; then
-        echo "File does not exist: $file" 1>&2
-        exit 1
-    elif [[ ! -r $file ]]; then
-        echo "File cannot be read: $file" 1>&2
+# verify the work directory or use default value
+if [[ $WORK_DIR ]]; then
+    WORK_DIR=$(readlink -f $WORK_DIR)
+else
+    echo -e "Info:\t\tno working directory (-d) specified; using '$PWD/miRNA-run_$DATETIME'" 1>&2
+    WORK_DIR=$PWD"/miRNA-run_"$DATETIME
+fi
+
+# determine the number of threads to use
+if [[ ! $NUM_CORES ]]; then
+    echo -e "Info:\t\tnumber of cores not specified; setting to 1." 1>&2
+    NUM_CORES=1
+else
+    if [[ $NUM_CORES =~ ^[0-9]+$ ]]; then
+        if [[ $NUM_CORES -gt $SYS_CORES ]]; then
+           echo -e "Warning:\tnumber of cores specified ($NUM_CORES) greater than number of cores available ($SYS_CORES). Setting to maximum $SYS_CORES." 1>&2
+           NUM_CORES=$SYS_CORES
+        fi
+    else
+        echo -e "Warning:\tnumber of cores must be a positive integer between 1 and $SYS_CORES. Setting number of cores to 1." 1>&2
+       NUM_CORES=1
+    fi
+fi
+
+
+
+
+
+
+# CREATE DIRECTORY TREE
+LOG_DIR=$WORK_DIR"/logs/"
+SEQDATA_DIR=$WORK_DIR"/seqdata/"
+ALIGNED_DIR=$WORK_DIR"/aligned/"
+ANNOTATED_DIR=$WORK_DIR"/annotated/"
+VIS_DIR=$WORK_DIR"/visualization/"
+LOG_FILE=$LOG_DIR/$INPUTFILE_BASE"_"$DATE".log"
+for dir in $LOG_DIR $SEQDATA_DIR $ALIGNED_DIR $ANNOTATED_DIR $VIS_DIR; do
+    if [[ $(mkdir -p $dir) -ne 0 ]]; then
+        echo -e "Fatal:\t\tcannot create directory $dir; exiting." | tee 1>&2
         exit 1
     fi
 done
 
-SYS_CORES=$(nproc)
-if [[ $NUM_CORES =~ ^[0-9]+$ ]]; then
-    if [[ $NUM_CORES -gt $SYS_CORES ]]; then
-        echo "Number of cores specified ($NUM_CORES) greater than number of cores available ($SYS_CORES). Setting to maximum $SYS_CORES." 1>&2
-        NUM_CORES=$SYS_CORES
+
+
+
+# GET/CHECK POSITIONAL ARGS (INPUT FILES)
+#if [[ $OPTIND > ${#@} ]]; then
+#    echo -e "Fatal:\t\tno sequence files passed as positional arguments (must be passed at the end of the line)." 1>&2
+#    print_usage
+#    exit 1
+#elif [[ $OPTIND == ${#@} ]]; then
+if [[ $OPTIND == ${#@} ]]; then
+    TMP_FILE=$1
+    if [[ ! $( exists_is_readable $TMP_FILE ) ]]; then
+        echo "Fatal:\t\t\"$TMP_FILE\": "$FILE_NOT_EXISTS_OR_NOT_READABLE_ERROR_TEXT
+        exit 1
     fi
+
+    TMP_FILE=$(decompress_file $1)
+    
+    if [[ ! $( extension_is_fastq $TMP_FILE ) ]]; then
+        echo "Fatal:\t\t\"$TMP_FILE\": "$NOT_FASTQ_ERROR_TEXT
+        exit 1
+    fi
+    
+    SEQ_FILE=$TMP_FILE
+    echo "One file, \$SEQ_FILE is $SEQ_FILE"
 else
-    echo "Number of cores must be a positive integer between 1 and $SYS_CORES. Setting number of cores to 1." 1>&2
-    NUM_CORES=1
+    # If more than one positional argument is passed, they must be merged
+    #cp $1 $seq_dir/$MERGE_FILE_NAME
+    for (( i=$OPTIND; i <= ${#@}; i++ )) {
+        TMP_FILE="${@:$i:1}"
+        TMP_FILE=$(decompress_file $TMP_FILE)
+        if [[ ! $( exists_is_readable $TMP_FILE ) ]]; then
+            echo -e "Error:\t\tskipping file \"$TMP_FILE\": "$FILE_NOT_EXISTS_OR_NOT_READABLE_ERROR_TEXT
+            continue
+        fi
+        if [[ ! $( extension_is_fastq $TMP_FILE ) ]]; then
+            echo -e "Error:\t\tskipping file \"$TMP_FILE\": "$NOT_FASTQ_ERROR_TEXT
+            continue
+        fi
+
+        if [[ ! $MERGE_FILE_NAME ]]; then
+            MERGE_FILE_NAME="${TMP_FILE%.*}_merged.${TMP_FILE##*.}"
+            MERGE_FILE_ABSPATH=$SEQDATA_DIR"/"$MERGE_FILE_NAME
+        fi
+
+        cat $TMP_FILE >> $MERGE_FILE_ABSPATH
+        less $MERGE_FILE_ABSPATH
+    }
+    if [[ $MERGE_FILE_ABSPATH ]]; then
+        SEQ_FILE=$MERGE_FILE_ABSPATH
+        echo "Multiple files, final merged file is at $SEQ_FILE" >&2
+    else
+        echo -e "Fatal:\t\tno valid input files found. Exiting." 1>&2
+    fi
 fi
 
+exit
 
-if [[ $WORK_DIR ]]; then
-    WORK_DIR=$(readlink -f $WORK_DIR)
-else
-    echo "Info:    no working directory (-d) specified; using '$PWD'" 1>&2
-    WORK_DIR=$PWD
-fi
 
+# INPUT FILE NAME HANDLES
 SCRIPT_SELF_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
-# INPUT / DIRECTORY TREE CONSTRUCTION
-
-INPUTFILE=$(basename $SEQ_FILE)
 INPUTFILE_ABSPATH=$(readlink -f $SEQ_FILE)
+INPUTFILE=$(basename $SEQ_FILE)
 INPUTFILE_DIR=$(dirname $INPUTFILE_ABSPATH)
 INPUTFILE_BASE="${INPUTFILE%.*}"
 INPUTFILE_EXTENSION="${INPUTFILE##*.}"
-
-# Decompress compressed data automatically
-#if [[ $(file $INPUTFILE_ABSPATH | grep gzip) ]]; then
-#    echo "Input file is compressed; decompressing to $SEQ_DATA
-#fi
 
 if [[ $GENOME_REF ]]; then
     REFERENCE=$(basename $GENOME_REF)
@@ -124,20 +243,7 @@ if [[ $MIRBASE_FILE ]]; then
     MIRBASE_EXTENSION="${MIRBASE_FILE##*.}"
 fi
 
-# Directories
-DATE=$(date "+%Y%m%d_%X")
-LOG_DIR=$WORK_DIR"/logs/"
-SEQDATA_DIR=$WORK_DIR"/seqdata/"
-ALIGNED_DIR=$WORK_DIR"/aligned/"
-ANNOTATED_DIR=$WORK_DIR"/annotated/"
-VIS_DIR=$WORK_DIR"/visualization/"
-LOG_FILE=$LOG_DIR/$INPUTFILE_BASE"_"$DATE".log"
-for dir in $LOG_DIR $SEQDATA_DIR $ALIGNED_DIR $ANNOTATED_DIR $VIS_DIR; do
-    if [[ $(mkdir -p $dir) -ne 0 ]]; then
-        echo "Cannot create directory $dir; exiting." | tee 1>&2
-        exit 1
-    fi
-done
+
 
 
 # MODULE LOADING
