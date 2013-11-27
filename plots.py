@@ -28,7 +28,7 @@ def hist_readlen(seq_file, output_name=None, output_dir=None):
     lengths_dict = defaultdict(int)
     with open(seq_file, 'r') as f:
         for seq in islice(f, first_headerline+1, None, 4):
-            lengths_dict[ len(seq) ] += 1
+            lengths_dict[ len(seq.strip()) ] += 1
     # Leaving this here as a reminder of how to use up 100GB of memory real quick-like
     #with open(seq_file, 'r') as f:
     #    lengths = ( len(seq) for seq in islice(f, first_headerline+1, None, 4) )
