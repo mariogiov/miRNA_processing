@@ -340,7 +340,7 @@ if [[ ! -f $OUTFILE_ALN ]]  || [[ $FORCE_OVERWRITE ]]; then
     # Need some kinda tricky redirection I guess for this to send stderr to a file but stdout to samtools?
     CL="bowtie2 -N 1 -L 18 -p $NUM_CORES -x $REFERENCE_DIR/$REFERENCE_BASE $INFILE_ALN | samtools view -S -b - > $OUTFILE_ALN 2>>$LOG_FILE"
     echo "Executing alignment command: $CL" | tee -a $LOG_FILE
-    eval $CL
+    eval $CL 2>>$LOG_FILE
 else
     echo -e "Alignment of $(basename $INFILE_ALN) to $(basename $REFERENCE_ABSPATH) already performed:\n$(basename $OUTFILE_ALN)\nexists." | tee -a $LOG_FILE 1>&2
 fi
@@ -400,7 +400,7 @@ if [[ $MIRBASE_FILE ]]; then
         # Need some kinda tricky redirection I guess for this to send stderr to a file but stdout to samtools?
         CL="bowtie2 -N 1 -L 18 -p $NUM_CORES -x $MIRBASE_DIR/$MIRBASE_BASE $INFILE_ALN | samtools view -S -b - > $OUTFILE_ALN 2>>$LOG_FILE"
         echo "Executing alignment command: $CL" | tee -a $LOG_FILE
-        eval $CL
+        eval $CL 2>>$LOG_FILE
     else
         echo -e "Alignment of $(basename $INFILE_ALN) to $MIRBASE_FILE already performed:\n$(basename $OUTFILE_ALN)\nexists." | tee -a $LOG_FILE 1>&2
     fi
