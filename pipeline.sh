@@ -2,6 +2,7 @@
 
 # TODO the concatenation of input fastq files to merge will cause the python script to break if there is a frameshift e.g. from extra headers
 # TODO it would be good to log the file rigamarole to know when decompression fails or if files are not readable, etc.
+# TODO consider checking if target files for decompression already exist? currently they are overwritten
 
 # DEFINE FUNCTIONS
 
@@ -321,12 +322,13 @@ INFILE_CUTADAPT=$INPUTFILE_ABSPATH
 OUTFILE_CUTADAPT=$SEQDATA_DIR"/"$INPUTFILE_BASE"_trimmed."$INPUTFILE_EXTENSION
 # TruSeq adapter sequence "TGGAATTCTCGGGTGCCAAGG"
 ADAPTER="TGGAATTCTCGGGTGCCAAGG"
+MIN_QUALITY_SCORE='10'
 MIN_SEQ_LENGTH='18'
 if [[ ! -f $OUTFILE_CUTADAPT ]] || [[ $FORCE_OVERWRITE ]]; then
     echo -e "Starting cutadapt trimming at $(date)." | tee -a $LOG_FILE 1>&2
-    CL="cutadapt -f fastq -a $ADAPTER --match-read-wildcards -O 5 -m $MIN_SEQ_LENGTH --too-short-output=/dev/null -o $OUTFILE_CUTADAPT $INFILE_CUTADAPT"
+    CL="cutadapt -f fastq -a $ADAPTER -q $MIN_QUALITY_SCORE --match-read-wildcards -O 5 -m $MIN_SEQ_LENGTH --too-short-output=/dev/null -o $OUTFILE_CUTADAPT $INFILE_CUTADAPT"
     echo "Cutadapt command: $CL" | tee -a $LOG_FILE 1>&2
-    eval $CL #2>&1 | tee -a $LOG_FILE
+    eval $CL 2>&1 | tee -a $LOG_FILE 1>&2
 else
     echo -e "cutadapt adapter trimming already performed on $(basename $INFILE_CUTADAPT):\noutput file $(basename $OUTFILE_CUTADAPT)\nexists." | tee -a $LOG_FILE 1>&2
 fi
