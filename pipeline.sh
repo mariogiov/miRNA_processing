@@ -122,7 +122,9 @@ done
 
 # CONSTANTS
 DATETIME=$(date "+%Y%m%d_%X")
-SYS_CORES=$(nproc)
+#SYS_CORES=$(nproc)
+# CHANGE THIS BACK AFTER THE RUN -- NPROC GIVING 1 FOR SOME REASON IN BATCH SCRIPT
+SYS_CORES=16
 
 # CHECK FOR PRESENCE OF POSITIONAL ARGUMENTS (further checks later)
 if [[ $OPTIND > ${#@} ]]; then
@@ -150,8 +152,9 @@ if [[ ! $NUM_CORES ]]; then
 else
     if [[ $NUM_CORES =~ ^[0-9]+$ ]]; then
         if [[ $NUM_CORES -gt $SYS_CORES ]]; then
-           echo -e "Warning:\tnumber of cores specified ($NUM_CORES) greater than number of cores available ($SYS_CORES). Setting to maximum $SYS_CORES." 1>&2
-           NUM_CORES=$SYS_CORES
+            echo -e "NPROC GIVES $(nproc)" 1>&2
+            echo -e "Warning:\tnumber of cores specified ($NUM_CORES) greater than number of cores available ($SYS_CORES). Setting to maximum $SYS_CORES." 1>&2
+            NUM_CORES=$SYS_CORES
         fi
     else
         echo -e "Warning:\tnumber of cores must be a positive integer between 1 and $SYS_CORES. Setting number of cores to 1." 1>&2
@@ -189,9 +192,10 @@ if [[ $OPTIND == ${#@} ]]; then
         exit 1
     fi
 
-    TMP_FILE=$(decompress_file $1 $SEQDATA_DIR)
-    if not [[ $TMP_FILE ]]; then
-        echo -e "Fatal:\t\tunhandled error when decompressing file \"$1\"; exiting." 1>&2
+    TMP_FILE=$(decompress_file $TMP_FILE $SEQDATA_DIR)
+    if [[ ! $TMP_FILE ]]; then
+        TMP_FILE="${@:$OPTIND:1}"
+        echo -e "Fatal:\t\tunhandled error when decompressing file \"$TMP_FILE\"; exiting." 1>&2
         exit 1
     fi
 
