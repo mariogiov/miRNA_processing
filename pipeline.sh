@@ -190,7 +190,7 @@ if [[ $OPTIND == ${#@} ]]; then
     fi
 
     TMP_FILE=$(decompress_file $1 $SEQDATA_DIR)
-    if not [[ $TMP_FILE ]]; then
+    if [[ ! $TMP_FILE ]]; then
         TMP_FILE="${@:$OPTIND:1}"
         echo -e "Fatal:\t\tunhandled error when decompressing file \"$TMP_FILE\"; exiting." 1>&2
         exit 1
