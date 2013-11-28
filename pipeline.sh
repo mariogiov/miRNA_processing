@@ -191,7 +191,8 @@ if [[ $OPTIND == ${#@} ]]; then
 
     TMP_FILE=$(decompress_file $1 $SEQDATA_DIR)
     if not [[ $TMP_FILE ]]; then
-        echo -e "Fatal:\t\tunhandled error when decompressing file \"$1\"; exiting." 1>&2
+        TMP_FILE="${@:$OPTIND:1}"
+        echo -e "Fatal:\t\tunhandled error when decompressing file \"$TMP_FILE\"; exiting." 1>&2
         exit 1
     fi
 
@@ -199,7 +200,7 @@ if [[ $OPTIND == ${#@} ]]; then
         echo -e "Fatal:\t\t\"$( basename $TMP_FILE)\": "$NOT_FASTQ_ERROR_TEXT 1>&2
         exit 1
     fi
-    
+
     SEQ_FILE=$TMP_FILE
     echo "One file, \$SEQ_FILE is $SEQ_FILE" 1>&2
 
