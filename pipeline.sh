@@ -78,7 +78,30 @@ function decompress_file () {
     fi
 }
 
-
+function fastqc_analysis() {
+    FN_FQA_INPUT_FILE=$1
+    FN_FQA_OUTPUT_DIR=$2
+    if [[ ! -r $FN_FQA_INPUT_FILE ]]; then
+        echo -e "Warning:\t\tfastqc input file \"$FN_FQA_INPUT_FILE\" does not exists or cannot be read. Skipping fastqc analysis." 1>&2
+        return 1
+    elif [[ ! -e $FN_FQA_OUTPUT_DIR ]]; then
+        if [[ ! $(mkdir -p $FN_FQA_OUTPUT_DIR) -eq 0 ]]; then
+            echo -e "Warning:\t\tfastqc output directory \"$FN_FQA_OUTPUT_DIR\" could not be created. Skipping fastqc analysis." 1>&2
+            return 1
+        else
+            if [[ ! $(fastqc -o $FN_FQA_OUTPUT_DIR -f fastq $FN_FQA_INPUT_FILE) -eq 0 ]]; then
+                echo -e "Warning:\t\tfastqc analysis of input file \"$FN_FQA_INPUT_FILE\" failed." 1>&2
+                return 1
+            else
+                echo $(readlink -e $FN_FQA_OUTPUT_DIR)
+                return 0
+            fi
+        fi
+    else
+        echo -e "Warning:\t\tfastqc output directory \"$FN_FQA_OUTPUT_DIR\" already exists. Skipping fastqc analysis." 1>&2
+        return 1
+    fi
+}
 
 
 # GET INPUT
@@ -167,6 +190,7 @@ fi
 # CREATE DIRECTORY TREE
 LOG_DIR=$WORK_DIR"/logs/"
 SEQDATA_DIR=$WORK_DIR"/seqdata/"
+FASTQC_DIR=$WORK_DIR"/fastqc/"
 ALIGNED_DIR=$WORK_DIR"/aligned/"
 [[ $FEATURES_FILE ]] && ANNOTATED_DIR=$WORK_DIR"/annotated/"
 VIS_DIR=$WORK_DIR"/visualization/"
@@ -202,7 +226,7 @@ if [[ $OPTIND == ${#@} ]]; then
     fi
 
     SEQ_FILE=$TMP_FILE
-    echo "One file, \$SEQ_FILE is $SEQ_FILE" 1>&2
+    echo "Single input file \"$SEQ_FILE\"" 1>&2
 
 else
     # If more than one positional argument is passed, they must be merged
@@ -239,22 +263,23 @@ fi
 # INPUT FILE NAME HANDLES
 SCRIPT_SELF_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
-INPUTFILE_ABSPATH=$(readlink -f $SEQ_FILE)
+
+INPUTFILE_ABSPATH=$(readlink -m $SEQ_FILE)
 INPUTFILE=$(basename $SEQ_FILE)
 INPUTFILE_DIR=$(dirname $INPUTFILE_ABSPATH)
 INPUTFILE_BASE="${INPUTFILE%.*}"
 INPUTFILE_EXTENSION="${INPUTFILE##*.}"
 
 if [[ $GENOME_REF ]]; then
-    REFERENCE=$(basename $GENOME_REF)
-    REFERENCE_ABSPATH=$(readlink -f $GENOME_REF)
+    REFERENCE_ABSPATH=$(readlink -m $GENOME_REF)
+    REFERENCE=$(basename $REFERENCE_ABSPATH)
     REFERENCE_DIR=$(dirname $REFERENCE_ABSPATH)
     REFERENCE_BASE="${REFERENCE%.*}"
     REFERENCE_EXTENSION="${REFERENCE##*.}"
 fi
 
 if [[ $FEATURES_FILE ]]; then
-    FEATURES_FILE_ABSPATH=$(readlink -f $FEATURES_FILE)
+    FEATURES_FILE_ABSPATH=$(readlink -m $FEATURES_FILE)
     FEATURES_FILE=$(basename $FEATURES_FILE)
     FEATURES_FILE_DIR=$(dirname $FEATURES_FILE_ABSPATH)
     FEATURES_FILE_BASE="${FEATURES_FILE%.*}"
@@ -262,7 +287,7 @@ if [[ $FEATURES_FILE ]]; then
 fi
 
 if [[ $MIRBASE_FILE ]]; then
-    MIRBASE_ABSPATH=$(readlink -f $MIRBASE_FILE)
+    MIRBASE_ABSPATH=$(readlink -m $MIRBASE_FILE)
     MIRBASE_FILE=$(basename $MIRBASE_FILE)
     MIRBASE_DIR=$(dirname $MIRBASE_ABSPATH)
     MIRBASE_BASE="${MIRBASE_FILE%.*}"
@@ -296,6 +321,7 @@ module unload python
 module load python/2.7.4
 module load bowtie2/2.1.0
 module load cutadapt
+module load fastqc
 module load htseq
 module load samtools
 #export PATH=/proj/a2010002/nobackup/sw/mf/bioinfo-tools/samtools/0.1.19:$PATH
@@ -334,6 +360,15 @@ else
     echo -e "cutadapt adapter trimming already performed on $(basename $INFILE_CUTADAPT):\noutput file $(basename $OUTFILE_CUTADAPT)\nexists." | tee -a $LOG_FILE 1>&2
 fi
 
+
+# TRIMMED FASTQC ANALYSIS
+FASTQC_TRIMMED_DIR=$FASTQC_DIR"/trimmed_prealignment/"
+echo -e "\n\nTRIMMED READS FASTQC ANALYSIS\n===============" | tee -a $LOG_FILE 1>&2
+if [[ ! -f $FASTQC_DIR ]]; then
+    fastqc_analysis $OUTFILE_CUTADAPT $FASTQC_TRIMMED_DIR 2>&1 | tee -a $LOG_FILE 1>&2
+else
+    echo -e "fastqc analysis already performed on $(basename $OUTFILE_CUTADAPT):\noutput directory \"$FASTQ_TRIMMED_DIR\" exists." | tee -a $LOG_FILE 1>&2
+fi
 
 echo -e "\n\nALIGNMENT TO GENOME REFERENCE\n=============================" | tee -a $LOG_FILE 1>&2
 INFILE_ALN=$OUTFILE_CUTADAPT
