@@ -44,10 +44,11 @@ def hist_readlen(seq_file, output_name=None, output_dir=None):
     axes.set_title("Read Length Histogram\n{}".format(seq_file_basename))
 
 
+    output_format="png"
     if not output_dir:
         output_dir = os.getcwd()
     if not output_name:
-        output_name = seq_file_name + "_readlength-histogram"
+        output_name = seq_file_name + "_readlength-histogram" + "." + output_format
     output_path = os.path.join(output_dir, output_name)
     fig.savefig(output_path)
 
@@ -55,7 +56,7 @@ if __name__=="__main__":
     parser = argparse.ArgumentParser("Create a histogram of read lengths from a given fastq file.")
     parser.add_argument("-i", "--input-file", dest="seq_file", required=True, help="The fastq file from which to read.")
     parser.add_argument("-d", "--output-dir", dest="output_dir", default=os.getcwd(), help="The directory in which to save the output file.")
-    parser.add_argument("-n", "--output-name", dest="output_name", default=None,  help="The name to use for the output file. Default same name as input file.")
+    parser.add_argument("-n", "--output-name", dest="output_name", default=None,  help="The name to use for the output file (not including extension). Default same name as input file.")
 
     args = vars(parser.parse_args())
     hist_readlen(**args)

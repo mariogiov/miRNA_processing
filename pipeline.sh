@@ -203,7 +203,7 @@ if [[ $OPTIND == ${#@} ]]; then
         echo -e "Fatal:\t\t\"$( basename $TMP_FILE)\": "$NOT_FASTQ_ERROR_TEXT 1>&2
         exit 1
     fi
-    
+
     SEQ_FILE=$TMP_FILE
     echo "One file, \$SEQ_FILE is $SEQ_FILE" 1>&2
 
@@ -340,7 +340,7 @@ fi
 
 echo -e "\n\nALIGNMENT TO GENOME REFERENCE\n=============================" | tee -a $LOG_FILE 1>&2
 INFILE_ALN=$OUTFILE_CUTADAPT
-OUTFILE_ALN=$ALIGNED_DIR"/"$INPUTFILE_BASE"_aln_"$REFERENCE_BASE".sam"
+OUTFILE_ALN=$ALIGNED_DIR"/"$INPUTFILE_BASE"_aln_"$REFERENCE_BASE".bam"
 if [[ ! -f $OUTFILE_ALN ]]  || [[ $FORCE_OVERWRITE ]]; then
     echo -e "Started bowtie2 alignment to genome reference at $(date)." | tee -a $LOG_FILE 1>&2
     # Need some kinda tricky redirection I guess for this to send stderr to a file but stdout to samtools?
@@ -400,9 +400,9 @@ fi
 if [[ $MIRBASE_FILE ]]; then
     echo -e "\n\nALIGNMENT TO MIRBASE\n====================" | tee -a $LOG_FILE 1>&2
     INFILE_ALN=$OUTFILE_CUTADAPT
-    OUTFILE_ALN=$ALIGNED_DIR"/"$INPUTFILE_BASE"_aln_"$MIRBASE_BASE".sam"
+    OUTFILE_ALN=$ALIGNED_DIR"/"$INPUTFILE_BASE"_aln_miRBase.bam"
     if [[ ! -f $OUTFILE_ALN ]] || [[ $FORCE_OVERWRITE ]]; then
-        echo -e "Started bowtie2 alignment to miRBASE at $(date)." | tee -a $LOG_FILE 1>&2
+        echo -e "Started bowtie2 alignment to miRBase at $(date)." | tee -a $LOG_FILE 1>&2
         # Need some kinda tricky redirection I guess for this to send stderr to a file but stdout to samtools?
         CL="bowtie2 -N 1 -L 18 -p $NUM_CORES -x $MIRBASE_DIR/$MIRBASE_BASE $INFILE_ALN | samtools view -S -b - > $OUTFILE_ALN 2>>$LOG_FILE"
         echo "Executing alignment command: $CL" | tee -a $LOG_FILE
