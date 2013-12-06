@@ -10,11 +10,11 @@ function print_usage { echo -e  "\nUsage:\t$0\n" \
                                 "\t\t[-r <genome_reference_file> (FASTA)>]\n" \
                                 "\t\t[-g <genome_feature_file (GTF/GFF)>]\n" \
                                 "\t\t[-m <mirbase_file (FASTA)>]\n" \
-								"\t\t[-o <output_directory>]\n" \
-								"\t\t[-n <cores>]\n" \
-								"\t\t[-f (overwrite existing files)]\n" \
-								"\t\t[-k (keep temp files)]\n" \
-								"\t\t<sequence_file> [<additional_sequence_files> <will_be_merged> <before_processing>]\n" >&2 ;
+                                "\t\t[-o <output_directory>]\n" \
+                                "\t\t[-n <cores>]\n" \
+                                "\t\t[-f (overwrite existing files)]\n" \
+                                "\t\t[-k (keep temp files)]\n" \
+                                "\t\t<sequence_file> [<additional_sequence_files> <will_be_merged> <before_processing>]\n" >&2 ;
                      }
 
 # extension_is_fastq()
@@ -238,7 +238,7 @@ fi
 LOG_DIR=$OUTPUT_DIR"/logs/"
 SEQDATA_DIR=$TMP_DIR"/seqdata/"
 FASTQC_DIR=$OUTPUT_DIR"/fastqc/"
-( [[ $GENOME_REF ]] || [[ $MIRBASE_FILE ]] ) && ALIGNED_DIR=$TMP_DIR"/aligned/"
+( [[ $GENOME_REF ]] || [[ $MIRBASE_FILE ]] ) && ALIGNED_DIR=$OUTPUT_DIR"/aligned/"
 [[ $FEATURES_FILE ]] && ANNOTATED_DIR=$OUTPUT_DIR"/annotated/"
 VIS_DIR=$OUTPUT_DIR"/visualization/"
 for dir in $LOG_DIR $SEQDATA_DIR $ALIGNED_DIR $VIS_DIR $ANNOTATED_DIR; do
@@ -475,10 +475,8 @@ if [[ $FEATURES_FILE ]]; then
                     # remove empty file on failed conversion but leave SAM file
                     rm $ANNOTATED_FILE_BAM
                 else
-                    # if we produce a new (annotated) bam file, delete the sam file
-                    rm $ANNOTATED_FILE_SAM
-                    # and move the original (unannotated) bam file into the tmp directory
-                    mv $ALIGNED_DIR $TMP_DIR"/aligned/"
+                    # if we produce a new (annotated) bam file, delete the sam file and the original alignment file
+                    rm $ANNOTATED_FILE_SAM $OUTFILE_ALN
                 fi
             fi
         else
@@ -530,8 +528,10 @@ fi
 # Remove tmp directory
 if [[ $KEEP_TMPFILES ]]; then
     echo -e "\nINFO:\t\tKeeping temp files: moving to \"$OUTPUT_DIR/tmp\"..." | tee -a $LOG_FILE 1>&2
-    mkdir -p $OUTPUT_DIR/tmp/
-    mv -v $TMP_DIR $OUTPUT_DIR/tmp/ 2>&1 | tee -a $LOG_FILE 1>&2
+    if [[ ! "$OUTPUT_DIR/tmp" -eq $TMP_DIR ]]; then
+        mkdir -p $OUTPUT_DIR/tmp/
+        mv -v $TMP_DIR $OUTPUT_DIR/tmp/ 2>&1 | tee -a $LOG_FILE 1>&2
+    fi
 else
     echo -e "\nINFO:\t\tRemoving tmp files." | tee -a $LOG_FILE 1>&2
     rm -rf $TMP_DIR
