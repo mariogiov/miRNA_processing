@@ -529,6 +529,6 @@ else
 fi
 
 END_TIME=$(date +%s)
-let DIFF_TIME=( $START_TIME-$END_TIME )/60
+let DIFF_TIME=( $END_TIME-$START_TIME )/60
 
 echo -e "INFO:\t\tRun finished at $(date); total processing time $DIFF_TIME minutes." | tee -a $LOG_FILE 1>&2
