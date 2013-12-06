@@ -189,13 +189,14 @@ fi
 
 # VERIFY TMP DIRECTORY IF PASSED OR USE DEFAULT SYSTEM TMP
 if [[ $TMP_DIR ]]; then
-    NEW_TMP_DIR=$(mktemp -d $(readlink -m $TMP_DIR)"/tmp.XXX")
+    NEW_TMP_DIR=$(mkdir $(readlink -m $TMP_DIR)"/tmp/")
     if [[ !$NEW_TMP_DIR ]]; then
         echo -e "WARNING:\tUnable to create temporary directory in user-supplied directory $TMP_DIR; falling back to output directory \"$OUTPUT_DIR\"" 1>&2
     else
         TMP_DIR=$NEW_TMP_DIR
     fi
 else
+    # Try using environment variables to locate system tmp
     if [[ $TMPDIR ]]; then
         TMP_DIR=$(mktemp -d $TMPDIR"/tmp.XXX")
     elif [[ $SNIC_TMP ]]; then
@@ -206,10 +207,10 @@ else
 fi
 # this is kind of like a 'finally' clause in case all the other attempts fail
 if [[ ! $TMP_DIR ]]; then
-    mkdir -p $OUTPUT_DIR"/tmp"
-    TMP_DIR=$(mktemp -d $OUTPUT_DIR"/tmp/tmp.XXX")
+    TMP_DIR=$OUTPUT_DIR"/tmp/"
+    mkdir -p $TMP_DIR
     if [[ ! $TMP_DIR ]]; then
-        echo -e "FATAL:\t\tUnable to create temporary working directory. Please specify on the command line with the -t flag." 1>&2
+        echo -e "FATAL:\t\tUnable to create temporary working directory \"$TMP_DIR\" -- please specify on the command line with the -t flag." 1>&2
         exit
     fi
 fi
