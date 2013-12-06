@@ -6,7 +6,16 @@
 # DEFINE FUNCTIONS
 
 # print_usage()
-function print_usage { echo -e "\nUsage:\t$0\n\t\t[-r <genome_reference_file> (FASTA)>]\n\t\t[-g <genome_feature_file (GTF/GFF)>]\n\t\t[-m <mirbase_file (FASTA)>]\n\t\t[-o <output_directory>]\n\t\t[-n <cores>]\n\t\t[-f (overwrite existing files)]\n\t\t[-k (keep temp files)]\n\t\t<sequence_file> [<additional_sequence_files> <will_be_merged> <before_processing>]\n" >&2 ; }
+function print_usage { echo -e  "\nUsage:\t$0\n" \
+                                "\t\t[-r <genome_reference_file> (FASTA)>]\n" \
+                                "\t\t[-g <genome_feature_file (GTF/GFF)>]\n" \
+                                "\t\t[-m <mirbase_file (FASTA)>]\n" \
+								"\t\t[-o <output_directory>]\n" \
+								"\t\t[-n <cores>]\n" \
+								"\t\t[-f (overwrite existing files)]\n" \
+								"\t\t[-k (keep temp files)]\n" \
+								"\t\t<sequence_file> [<additional_sequence_files> <will_be_merged> <before_processing>]\n" >&2 ;
+                     }
 
 # extension_is_fastq()
 NOT_FASTQ_ERROR_TEXT="input file is not in fastq format (doesn't end with .fastq or .fq)"
