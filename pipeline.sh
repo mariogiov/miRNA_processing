@@ -158,7 +158,7 @@ done
 
 # CONSTANTS
 DATETIME=$(date "+%Y%m%d_%X")
-SYS_CORES=$(nproc)
+[[ $SLURM_CPUS_ON_NODE ]] && SYS_CORES=$SLURM_CPUS_ON_NODE || SYS_CORES=$(nproc --all)
 
 # CHECK FOR PRESENCE OF POSITIONAL ARGUMENTS (further checks later)
 if [[ $OPTIND > ${#@} ]]; then
@@ -215,8 +215,6 @@ if [[ ! $TMP_DIR ]]; then
     fi
 fi
 
-# HACK nproc isn't working for some reason on the cluster -- hack it
-SYS_CORES=16
 # DETERMINE THE NUMBER OF CORES TO USE
 if [[ ! $NUM_CORES ]]; then
     echo -e "INFO:\t\tNumber of cores not specified; setting to 1." 1>&2
