@@ -77,15 +77,18 @@ function fastqc_analysis() {
     FN_FQA_INPUT_FILE=$1
     FN_FQA_OUTPUT_DIR=$2
     if [[ ! -r $FN_FQA_INPUT_FILE ]]; then
-        echo -e "WARNING:\tFastqc input file \"$FN_FQA_INPUT_FILE\" does not exists or cannot be read. Skipping fastqc analysis." 1>&2
+        echo -e "\nWARNING:\tFastqc input file \"$FN_FQA_INPUT_FILE\" does not exists or cannot be read. Skipping fastqc analysis." 1>&2
         return 1
     elif [[ ! -e $FN_FQA_OUTPUT_DIR ]]; then
         if [[ ! $(mkdir -p $FN_FQA_OUTPUT_DIR) -eq 0 ]]; then
-            echo -e "WARNING:\tFastqc output directory \"$FN_FQA_OUTPUT_DIR\" could not be created. Skipping fastqc analysis." 1>&2
+            echo -e "\nWARNING:\tFastqc output directory \"$FN_FQA_OUTPUT_DIR\" could not be created. Skipping fastqc analysis." 1>&2
             return 1
         else
-            if [[ ! $(fastqc -o $FN_FQA_OUTPUT_DIR -f fastq $FN_FQA_INPUT_FILE) -eq 0 ]]; then
-                echo -e "WARNING:\tFastqc analysis of input file \"$FN_FQA_INPUT_FILE\" failed." 1>&2
+            CL="fastqc -o $FN_FQA_OUTPUT_DIR -f fastq $FN_FQA_INPUT_FILE"
+            echo -e "\nINFO:\t\tExecuting fastqc command line:\n\t\t$CL" 1>&2
+            eval $CL 1>&2
+            if [[ ! $? -eq 0 ]]; then
+                echo -e "\nWARNING:\tFastqc analysis of input file \"$FN_FQA_INPUT_FILE\" failed." 1>&2
                 return 1
             else
                 echo $(readlink -e $FN_FQA_OUTPUT_DIR)
@@ -288,7 +291,9 @@ else
         fi
 
         echo -en "INFO:\t\tConcatenating \"$TMP_FILE\" to merge file \"$MERGE_FILE_ABSPATH\"..." | tee -a $TMP_LOG_FILE 1>&2
-        if [[ $(cat $TMP_FILE >> $MERGE_FILE_ABSPATH 2>>$TMP_LOG_FILE) ]]; then
+        cat $TMP_FILE >> $MERGE_FILE_ABSPATH 2>>$TMP_LOG_FILE
+        if [[ $? -eq 0 ]]; then
+        #if [[ $(cat $TMP_FILE >> $MERGE_FILE_ABSPATH 2>>$TMP_LOG_FILE) ]]; then
             echo " done." | tee -a $TMP_LOG_FILE 1>&2
         else
             echo -en "FATAL:\t\tCould not merge input files. Exiting." | tee -a $TMP_LOG_FILE 1>&2
@@ -382,7 +387,7 @@ MIN_SEQ_LENGTH='18'
 if [[ ! -f $OUTFILE_CUTADAPT ]] || [[ $FORCE_OVERWRITE ]]; then
     echo -e "INFO:\t\tStarting cutadapt trimming at $(date)." | tee -a $LOG_FILE 1>&2
     CL="cutadapt -f fastq -a $ADAPTER -q $MIN_QUALITY_SCORE --match-read-wildcards -O 5 -m $MIN_SEQ_LENGTH --too-short-output=/dev/null -o $OUTFILE_CUTADAPT $INFILE_CUTADAPT"
-    echo "INFO:\t\tExecuting cutadapt command: $CL" | tee -a $LOG_FILE 1>&2
+    echo -e "INFO:\t\tExecuting cutadapt command:\n\t\t$CL" | tee -a $LOG_FILE 1>&2
     eval $CL 2>&1 | tee -a $LOG_FILE 1>&2
     [[ ${PIPESTATUS[0]} -eq 0 ]] ||  echo -e "ERROR:\t\tcutadapt trimming failed." | tee -a $LOG_FILE 1>&2
 else
@@ -398,7 +403,7 @@ echo -e "\n\nTRIMMED READS FASTQC ANALYSIS\n=============================" | tee
 if [[ ! -f $FASTQC_DIR ]]; then
     echo -e "INFO:\t\tStarted fastqc analysis of trimmed reads at $(date)." | tee -a $LOG_FILE 1>&2
     CL="fastqc_analysis $OUTFILE_CUTADAPT $FASTQC_TRIMMED_DIR"
-    echo -e "INFO:\t\tExecuting fastqc command:\n\t$CL" | tee -a $LOG_FILE 1>&2
+    echo -e "INFO:\t\tExecuting fastqc command:\n\t\t$CL" | tee -a $LOG_FILE 1>&2
     eval $CL 2>&1 | tee -a $LOG_FILE 1>&2
     [[ ${PIPESTATUS[0]} -eq 0 ]] || echo -e "ERROR:\t\tfastqc analysis of $OUTFILE_CUTADAPT failed." | tee -a $LOG_FILE 1>&2
 else
@@ -418,7 +423,7 @@ if [[ $GENOME_REF ]]; then
         # Need some kinda tricky redirection I guess for this to send stderr to a file but stdout to samtools?
         # popen3 would work
         CL="bowtie2 -N 1 -L 18 -p $NUM_CORES -x $REFERENCE_DIR/$REFERENCE_BASE $INFILE_ALN | samtools view -S -b - > $OUTFILE_ALN"
-        echo -e "INFO:\t\tExecuting alignment command:\n\t$CL" | tee -a $LOG_FILE 1>&2
+        echo -e "INFO:\t\tExecuting alignment command:\n\t\t$CL" | tee -a $LOG_FILE 1>&2
         eval $CL 2>&1 | tee -a $LOG_FILE 1>&2
         [[ ${PIPESTATUS[0]} -eq 0 ]] || echo -e "ERROR:\t\tAlignment of $(basename $INFILE_ALN) to $(basename $REFERENCE_ABSPATH) failed." | tee -a $LOG_FILE 1>&2
     else
@@ -432,27 +437,32 @@ fi
 if [[ $FEATURES_FILE ]]; then
     echo -e "\n\nANNOTATION\n==========" | tee -a $LOG_FILE 1>&2
     if [[ ! $OUTFILE_ALN ]]; then
-        echo -e "ERROR:\t\tNo alignment file available: please specify genome reference file via flag \"-r\"." | tee -a $LOG_FILE 1>&2
+        echo -e "ERROR:\t\tNo input alignment file available to annotate: please specify genome reference file via flag \"-r\"." | tee -a $LOG_FILE 1>&2
     else
         OUTFILE_ALN_BASE=$(basename "${OUTFILE_ALN%.*}")
         OUTFILE_COUNTS=$ANNOTATED_DIR"/"$OUTFILE_ALN_BASE"_counts_"$FEATURES_FILE_BASE".csv"
         ANNOTATED_FILE_SAM=$ANNOTATED_DIR"/"$OUTFILE_ALN_BASE"_annotated_"$FEATURES_FILE_BASE".sam"
         ANNOTATED_FILE_BAM="${ANNOTATED_FILE_SAM%.*}"".bam"
-        if ( [[ ! -f $OUTFILE_COUNTS ]] || [[ ! -f $ANNOTATED_FILE_BAM ]] ) || [[ $FORCE_OVERWRITE ]]; then
+        # This binary logic gets a little wild but the idea is that if the annotation hasn't been done, or if it has but the bam file wasn't produced,
+        # or if they all have but the force_overwrite (-f) flag was passed, process the files.
+        # At least I -think- that's what it does.
+        if ( ( [[ ! -f $OUTFILE_COUNTS ]] || [[ ! -f $ANNOTATED_FILE_SAM ]] ) || [[ ! -f $ANNOTATED_FILE_BAM ]] ) || [[ $FORCE_OVERWRITE ]]; then
             echo -e "INFO:\t\tStarted annotation of alignment at $(date)." | tee -a $LOG_FILE 1>&2
             CL="samtools view -h $OUTFILE_ALN | htseq-count -o $ANNOTATED_FILE_SAM -t exon -s no -q -i 'ID' - $FEATURES_FILE_ABSPATH | sort -n -k 2 -r > $OUTFILE_COUNTS"
-            echo -e "INFO:\t\tExecuting annotation command:\n\t$CL" | tee -a $LOG_FILE 1>&2
+            echo -e "INFO:\t\tExecuting annotation command:\n\t\t$CL" | tee -a $LOG_FILE 1>&2
             eval $CL 2>>$LOG_FILE
             [[ $? -eq 0 ]] || echo -e "ERROR:\t\tAnnotation failed." | tee -a $LOG_FILE 1>&2
+        fi
+        if [[ ! -f $ANNOTATED_FILE_BAM ]] || [[ $FORCE_OVERWRITE ]]; then
             if [[ ! $REFERENCE_ABSPATH ]]; then
                 echo -e "WARNING:\tCannot convert SAM file to BAM format without reference file. Please specify the reference using the \"-r\" flag." | tee -a $LOG_FILE 1>&2
             else
                 echo -e "INFO:\t\tConverting SAM file to BAM format." | tee -a $LOG_FILE 1>&2
-                CL="samtools view -h $ANNOTATED_FILE_SAM >> $ANNOTATED_FILE_BAM"
-                echo -e "INFO:\t\tExecuting conversion command:\n\t$CL" | tee -a $LOG_FILE 1>&2
+                CL="samtools view -S -bT $REFERENCE_ABSPATH $ANNOTATED_FILE_SAM >> $ANNOTATED_FILE_BAM"
+                echo -e "INFO:\t\tExecuting conversion command:\n\t\t$CL" | tee -a $LOG_FILE 1>&2
                 eval $CL 2>>$LOG_FILE
                 if [[ ! $? -eq 0 ]]; then
-                    echo "ERROR:\t\tConversion of SAM file to BAM format failed." | tee -a $LOG_FILE 1>&2
+                    echo -e "ERROR:\t\tConversion of SAM file to BAM format failed." | tee -a $LOG_FILE 1>&2
                     # remove empty file on failed conversion but leave SAM file
                     rm $ANNOTATED_FILE_BAM
                 else
@@ -500,7 +510,7 @@ if [[ $MIRBASE_FILE ]]; then
         echo -e "INFO:\t\tStarted bowtie2 alignment to miRBase at $(date)." | tee -a $LOG_FILE 1>&2
         # Need some kinda tricky redirection I guess for this to send stderr to a file but stdout to samtools?
         CL="bowtie2 -N 1 -L 18 -p $NUM_CORES -x $MIRBASE_DIR/$MIRBASE_BASE $INFILE_ALN | samtools view -S -b - > $OUTFILE_ALN 2>>$LOG_FILE"
-        echo "INFO:\t\tExecuting alignment command: $CL" | tee -a $LOG_FILE
+        echo -e "INFO:\t\tExecuting alignment command:\n\t\t$CL" | tee -a $LOG_FILE
         eval $CL 2>>$LOG_FILE
         [[ ${PIPESTATUS[0]} -eq 0 ]] || echo -e "ERROR:\t\tAlignment of $(basename $INFILE_ALN) to $MIRBASE_FILE failed." | tee -a $LOG_FILE 1>&2
     else
