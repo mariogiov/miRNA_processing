@@ -1,6 +1,7 @@
 import sys, optparse, itertools, warnings, traceback, os.path
 
 import HTSeq
+import collections
 
 class UnknownChrom( Exception ):
    pass
@@ -37,6 +38,7 @@ def count_reads_in_features( sam_filename, gff_filename, stranded,
       samoutfile = None
 
    features = HTSeq.GenomicArrayOfSets( "auto", stranded != "no" )
+   length_counts = collections.defaultdict(int)
    counts = {}
 
    # Try to open samfile to fail early in case it is not there
@@ -181,6 +183,7 @@ def count_reads_in_features( sam_filename, gff_filename, stranded,
                ambiguous += 1
             else:
                write_to_samout( r, list(fs)[0] )
+               length_counts[ r.iv.length ] += 1
                counts[ list(fs)[0] ] += 1
          except UnknownChrom:
             if not pe_mode:
@@ -221,6 +224,7 @@ def count_reads_in_features( sam_filename, gff_filename, stranded,
    print "not_aligned\t%d" % notaligned
    print "alignment_not_unique\t%d" % nonunique
 
+   return length_counts
 
 def main():
 
