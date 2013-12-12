@@ -16,7 +16,7 @@ def invert_strand( iv ):
       raise ValueError, "Illegal strand"
    return iv2
 
-def count_reads_in_features( sam_filename, gff_filename, stranded,
+def count_reads_in_features( aln_filename, gff_filename, stranded,
       overlap_mode, feature_type, id_attribute, quiet, minaqual, samout ):
 
    def write_to_samout( r, assignment ):
@@ -42,8 +42,8 @@ def count_reads_in_features( sam_filename, gff_filename, stranded,
    counts = {}
 
    # Try to open samfile to fail early in case it is not there
-   if sam_filename != "-":
-      open( sam_filename ).close()
+   if aln_filename != "-":
+      open( aln_filename ).close()
 
    gff = HTSeq.GFF_Reader( gff_filename )
    i = 0
@@ -75,9 +75,19 @@ def count_reads_in_features( sam_filename, gff_filename, stranded,
    if len( counts ) == 0 and not quiet:
       sys.stderr.write( "Warning: No features of type '%s' found.\n" % feature_type )
 
+
+   aln_basename, aln_ext   = os.path.splitext(os.path.basename(aln_filename))
+   # See http://www-huber.embl.de/users/anders/HTSeq/doc/alignments.html
+   aln_reader_fn = {    '.bam': HTSeq.BAM_Reader,
+                        '.sam': HTSeq.SAM_Reader,}[aln_ext]
+
+
+
    try:
-      if sam_filename != "-":
-         read_seq = HTSeq.SAM_Reader( sam_filename )
+      if aln_filename != "-":
+        # Read SAM or BAM
+         read_seq = aln_reader_fn(aln_filename)
+         #read_seq = HTSeq.SAM_Reader( aln_filename )
          first_read = iter(read_seq).next()
       else:
          read_seq = iter( HTSeq.SAM_Reader( sys.stdin ) )
