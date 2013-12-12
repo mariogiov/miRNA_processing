@@ -85,9 +85,11 @@ def annotate_count_aln(aln_file, ann_file, output_dir, feature_type):
 
     # counts_reads_in_features prints to stdout
     old_stdout = sys.stdout
-    #sys.stdout = counts_fh = open(ann_cnt_file, 'w')
+    #sys.stdout = f = open(ann_cnt_file, 'w')
+    # write sam output to /dev/null
     sys.stdout = f = open(os.devnull, 'w')
 
+    # quick hack to dump output for later use
     length_counts = None
     try:
         # Usage: count_reads_in_features( sam_filename, gff_filename, stranded, overlap_mode, feature_type, id_attribute, quiet, minaqual, samout )
@@ -129,25 +131,30 @@ def count_features_in_aln_manual(aln_file, ann_file, feature_type, output_dir=No
     feature_array = HTSeq.GenomicArrayOfSets( "auto", stranded=False )
 
 
-
-
-def sam_to_bam():
+def bam_to_sam(bam_file, ref_file, return_fh=True):
     """
-    Given a SAM file and the correct reference genome,
-    produces a BAM file.
+    Given a BAM file, returns a SAM file with header
+    or a filehandle.
     """
+    # TODO
     pass
 
 
+def sam_to_bam(sam_file, ref_file):
+    """
+    Given a SAM file and the correct reference genome,
+    returns a sorted BAM file.
+    """
+    sam_file = os.path.realpath(sam_file)
+    sam_basename, _ = os.path.splitext(os.path.basename(sam_file))
+    # TODO
 
 def annotate_alignment_no_htseq(sam_file, annotation_file, feature_type, idattr='ID', output_dir=None, reference_file=None):
     """
     Given an alignment file, an annotation file, and an RNA type,
     produces an annotated SAM file using HTSeq.
+    Implemented as shell commands.
     """
-    # I promise I'll implement this using the python modules themselves
-    # eventually
-    # probably
 
     sam_file = os.path.realpath(sam_file)
     sam_basename, _ = os.path.splitext(os.path.basename(sam_file))
