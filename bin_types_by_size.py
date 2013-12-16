@@ -1,3 +1,4 @@
+#!/usr/bin/python
 """
 A module to produce that plot I've been talking about.
 """
