@@ -18,16 +18,13 @@ def main(genomeref_file, annotation_file, mirbase_file, output_dir, num_cores, f
     Add docstring
     """
 
-    rundirectory = RunDirectory(output_dir, tmp_dir, keep_tmp, force_overwrite)
+    run_directory = RunDirectory(output_dir, tmp_dir, keep_tmp, force_overwrite)
     # TODO Initialize logger -- see how Guillermo tends to do this -- need to write to local file, stderr, and logstash
     # logger = 
 
-
-    # Verify / get cores to use
     num_cores = get_validated_cores(num_cores)
 
-    # Merge input fastq files if > 1
-    working_fastq = merge_input_fastq_files(input_fastq_list)
+    working_fastq = merge_input_fastq_files(input_fastq_list, run_directory)
 
     # Somehow activate the modules command, or use python functions
 
@@ -45,6 +42,79 @@ def main(genomeref_file, annotation_file, mirbase_file, output_dir, num_cores, f
 
     # remove or save tmp directory
     pass
+
+def is_compressed(input_file):
+    """
+    Checks to see if the file is gzip compressed, returns T/F
+    """
+    # TODO add bzip2 support
+
+    # I dare you to come up with a better way to do this
+    cmd = shlex.split("gzip -d -t {}".format(input_file))
+    try:
+        file_output = subprocess.check_call(cmd)
+        return True
+    except subprocess.CalledProcessError:
+    # Technically this is too broad a check (file not exists, file not readable)
+    # but that is dealt with elsewhere
+        return False
+
+def decompress_file(input_file, output_dir=os.getcwd(), return_pipe=False):
+    """
+    Decompresses an input file in gzip format.
+    Returns the abspath to the decompressed output file
+    or a PIPE if requested.
+    """
+    # TODO add bzip2 support
+
+    if is_compressed(input_file):
+        cmd = shlex.split(dcmp_str.format(fastq_file))
+        # Remove .gz, .gzip, .bz2 extensions if present
+        if return_pipe:
+            return subprocess.Popen(cmd, stdout=subprocess.PIPE).stdout
+        else:
+            basename = strip_gzip_ext(os.path.basename(fastq_file))
+            output_file = os.path.join(run_directory.tmp_dir, basename)
+            with open(output_file, 'w') as f:
+                subprocess.Popen(cmd, stdout=f)
+            return output_file
+    else:
+        if return_pipe:
+            cmd = shlex.split("cat {}".format(input_file))
+            return subprocess.Popen(cmd, stdout=subprocess.PIPE).stdout
+        else:
+            return os.path.realpath(input_file)
+
+def strip_gzip_ext(file_name):
+    """
+    Returns the file without the .gz or .gzip suffix, if present
+    """
+    # TODO add bzip2 support
+
+    base, ext = os.path.splitext(file_name)
+    if re.match('\.gz(ip)?$|.bz2', ".bz2", ext):
+        file_name = base
+    return file_name
+
+
+def merge_input_fastq_files(input_fastq_list, run_directory):
+    """
+    Merge multiple fastq files into one fastq file.
+    Returns the path to the final merged fastq file,
+    or the original file in the case of just one input file.
+    """
+    if len(input_fastq_list) is 1:
+        fastq_file = input_fastq_list[0]
+        # decompress if compressed
+        return decompress_file(fastq_file, output_dir=run_directory.tmp_dir)
+    else:
+        merged_filename = "MERGED_{}".format(strip_gzip_ext(os.path.basename(input_fastq_list[0])))
+        merged_filepath = os.path.join(run_directory.tmp_dir, merged_filename)
+        with open(merged_filepath) as output_file:
+            for fastq_file in input_fastq_list:
+                stream = decompress_file(fastq_file, return_pipe=True)
+                output_file.write(stream.stdout.read())
+        return merged_filepath
 
 def get_validated_cores(num_cores):
     sys_cores =     os.getenv('SLURM_CPUS_ON_NODE') \
@@ -76,6 +146,8 @@ class RunDirectory(object):
         self.tmp_dir            = self.create_tmp_dir(tmp_dir)
         self.force_overwrite    = force_overwrite
         self.keep_tmp           = keep_tmp
+        self.res_dirs           = []
+        self.tmp_dirs           = []
 
     def create_output_dir(self, output_dir):
         """
@@ -107,7 +179,7 @@ class RunDirectory(object):
         else system tmp if determinable else output directory.
         Returns the absolute path to the tmp directory.
         """
-        # TODO how to deal with keep_tmp -- write to output_dir from the start or move after?
+        # if keep_tmp, still write to tmp_dir so as not to hammer network drives, etc. (?)
         if not tmp_dir:
             # try using environment vars to locate system tmp
             tmp_dir = os.getenv('TMPDIR') or os.getenv('SNIC_TMP') or self.output_dir
@@ -123,6 +195,26 @@ class RunDirectory(object):
 
         self.tmp_dir = tmp_dir
         return self.tmp_dir
+
+    def create_dir(self, dir_name, in_tmp=False):
+        """
+        Create a new directory within the working or tmp directory.
+        """
+        if in_tmp:
+            full_dir_path = os.path.join(self.tmp_dir, dir_name)
+        else:
+            full_dir_path = os.path.join(self.output_dir, dir_name)
+
+        print('Creating directory "{}"'.format(dir_name), file=sys.stderr
+        os.makedirs(full_dir_path)
+
+        if in_tmp:
+            self.tmp_dirs.append(full_dir_path)
+        else:
+            self.dirs.append(full_dir_paht)
+
+        return full_dir_path
+
 
     def remove_tmp_dir(self):
         """
