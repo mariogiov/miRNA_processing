@@ -157,7 +157,7 @@ done
 
 
 # CONSTANTS
-DATETIME=$(date "+%Y%m%d_%X")
+DATETIME=$(date "+%Y%m%d_%H%M%S")
 [[ $SLURM_CPUS_ON_NODE ]] && SYS_CORES=$SLURM_CPUS_ON_NODE || SYS_CORES=$(nproc --all)
 
 # CHECK FOR PRESENCE OF POSITIONAL ARGUMENTS (further checks later)
@@ -250,7 +250,7 @@ done
 
 # CREATE TEMPORARY LOG FILE
 # must create temporary log file until we get the definitive name of the input file
-TMP_LOG_FILE=$(mktemp $LOG_DIR/"run_"$DATETIME"-XXX.prelog")
+TMP_LOG_FILE=$(mktemp $LOG_DIR"run_"$DATETIME"-XXX.prelog")
 START_TIME=$(date +%s)
 echo -e "Beginning script execution at $(date)." > $TMP_LOG_FILE
 echo -e "Script invoked as: $0 $@\n" >> $TMP_LOG_FILE
