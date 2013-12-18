@@ -16,6 +16,7 @@ def hist_readlen(seq_file, output_name=None, output_dir=None):
 
     seq_file_basename = seq_file_name.replace("_trimmed", "")
 
+    # TODO change this to be more robust, maybe use FastQReader
     # Find the first header line
     first_headerline = 0
     with open(seq_file, 'r') as f:
@@ -29,9 +30,6 @@ def hist_readlen(seq_file, output_name=None, output_dir=None):
     with open(seq_file, 'r') as f:
         for seq in islice(f, first_headerline+1, None, 4):
             lengths_dict[ len(seq.strip()) ] += 1
-    # Leaving this here as a reminder of how to use up 100GB of memory real quick-like
-    #with open(seq_file, 'r') as f:
-    #    lengths = ( len(seq) for seq in islice(f, first_headerline+1, None, 4) )
 
     # Figure business
     fig = plt.figure()
