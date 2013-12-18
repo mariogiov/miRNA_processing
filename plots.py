@@ -1,4 +1,7 @@
 #!/usr/bin/python
+"""
+Plot a histogram of readlengths from a fastq file.
+"""
 
 import argparse
 import os
