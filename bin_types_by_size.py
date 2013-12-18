@@ -41,6 +41,7 @@ def main(aln_file, ann_file, ref_file, output_dir=None, id_attr='ID', feature_ty
         feature_counts[feature_type] = length_counts
 
     in_base, _ = os.path.splitext(os.path.basename(aln_file))
+    # quick hack to dump output for later use
     tmp_output_file = os.path.join(output_dir, "feature_counts-{}.tsv".format(in_base))
     with open(tmp_output_file, 'w') as f:
         f.write( yaml.dump(feature_counts) )
@@ -85,24 +86,17 @@ def annotate_count_aln(aln_file, ann_file, output_dir, feature_type):
                                                         ann_file=os.path.basename(ann_file)), file=sys.stderr)
 
     # counts_reads_in_features prints to stdout
-    old_stdout = sys.stdout
-    #sys.stdout = f = open(ann_cnt_file, 'w')
-    # write sam output to /dev/null
-    sys.stdout = f = open(os.devnull, 'w')
+    with open(os.devnull, 'w') as f:
+        with redirect_stream(sys.stdout, f):
+            length_counts = None
+            try:
+                # Usage: count_reads_in_features( sam_filename, gff_filename, stranded, overlap_mode, feature_type, id_attribute, quiet, minaqual, samout )
+                return counts.count_reads_in_features(aln_file, ann_file, False, "union", feature_type, 'ID', False, 10, "")
+            except ValueError:
+            # Skip features that give errors due to e.g. incorrect formatting, missing attributes
+                return None
 
-    # quick hack to dump output for later use
-    length_counts = None
-    try:
-        # Usage: count_reads_in_features( sam_filename, gff_filename, stranded, overlap_mode, feature_type, id_attribute, quiet, minaqual, samout )
-        #return counts.count_reads_in_features(aln_file, ann_file, False, "union", feature_type, 'ID', False, 10, ann_sam_file)
-        return counts.count_reads_in_features(aln_file, ann_file, False, "union", feature_type, 'ID', False, 10, "")
-    except ValueError:
-        return None
-    finally:
-        sys.stdout = old_stdout
-        f.close()
-
-    #return length_counts, ann_sam_file, ann_cnt_file
+            #return length_counts, ann_sam_file, ann_cnt_file
 
 
 def count_features_in_aln_manual(aln_file, ann_file, feature_type, output_dir=None, reference_file=None):
@@ -111,10 +105,6 @@ def count_features_in_aln_manual(aln_file, ann_file, feature_type, output_dir=No
     returns the number of counts of that feature type present in the alignment.
     See http://www-huber.embl.de/users/anders/HTSeq/doc/tour.html#counting-reads-by-genes
     """
-
-    #if not output_dir:
-    #    output_dir = os.path.dirname(bam_file)
-    #    print("Output directory name not specified; using directory containing SAM file, \"{}\".".format(output_dir), file=sys.stderr)
 
     aln_basename, aln_ext   = os.path.splitext(os.path.basename(bam_file))
     ann_basename, _         = os.path.splitext(os.path.basename(annotation_file))
@@ -126,10 +116,30 @@ def count_features_in_aln_manual(aln_file, ann_file, feature_type, output_dir=No
     # Read SAM or BAM
     aln_reader = aln_reader_fn(aln_file)
 
+    # Not keeping these files at the moment
+    #if not output_dir:
+    #    output_dir = os.path.dirname(bam_file)
+    #    print("Output directory name not specified; using directory containing SAM file, \"{}\".".format(output_dir), file=sys.stderr)
     #aln_filename = os.path.join(output_dir, "{feature_type}_{sam_basename}.sam".format(**locals()))
     #cnt_filename = os.path.join(output_Dir, "{feature_type}_{sam_basename}.counts.csv".format(**locals()))
 
     feature_array = HTSeq.GenomicArrayOfSets( "auto", stranded=False )
+
+
+class redirect_stream(object):
+    """
+    Context manager to swap one stream for another temporarily. Useful for e.g. temporarily redirecting STDOUT to a file.
+    """
+
+    def __init__(self, original_stream, tmp_stream):
+        self.original_stream    = original_stream
+        self.tmp_stream         = tmp_stream
+
+    def __enter__(self):
+        original_stream = self.tmp_stream
+
+    def __exit__(self):
+        original_stream = self.original_stream
 
 
 def bam_to_sam(bam_file, ref_file, return_fh=True):
