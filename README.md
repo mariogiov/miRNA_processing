@@ -3,7 +3,10 @@ smRNA / miRNA Processing
 
 Usage
 -----
-Usage:  pipeline.sh
+
+Usage::
+
+    pipeline.sh
                 [-r <genome_reference_file> (FASTA)>]
                 [-g <genome_feature_file (GTF/GFF)>]
                 [-m <mirbase_file (FASTA)>]
@@ -29,7 +32,7 @@ More specifically:
 
 What It Does Not Do
 -------------------
- - Automatically generate a report or statistics. This must be done manually, although an example report in .rst format is supplied
+ - Automatically generate a report or statistics. This must be done manually, although an example report in RST format is supplied
 
 
 Required Software
@@ -58,4 +61,5 @@ Output
 
 Example Usage
 -------------
-> bash pipeline.sh -r path/to/reference_file.fa -g path/to/annotation_file.gff -m path/to/miRBase.fa -o output_dir/ -n 8 -f -k data_file1.fastq data_file2.fq data_file3_fastq
+::
+    bash pipeline.sh -r path/to/reference_file.fa -g path/to/annotation_file.gff -m path/to/miRBase.fa -o output_dir/ -n 8 -f -k data_file1.fastq data_file2.fq data_file3_fastq
