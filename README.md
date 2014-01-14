@@ -62,5 +62,13 @@ Output
 Example Usage
 -------------
 
-    bash pipeline.sh -r path/to/reference_file.fa -g path/to/annotation_file.gff -m path/to/miRBase.fa -o output_dir/ -n 8 -f -k data_file1.fastq data_file2.fq data_file3_fastq
+    bash pipeline.sh \
+        -r path/to/reference_file.fa \
+        -g path/to/annotation_file.gff \
+        -m path/to/miRBase.fa \
+        -o output_dir/ \
+        -n 8 \
+        -f \
+        -k \
+        data_file1.fastq data_file2.fq data_file3_fastq
 
