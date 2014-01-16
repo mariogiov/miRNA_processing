@@ -1,3 +1,6 @@
+"""
+Taken from HTSeq github, modified slightly
+"""
 import sys, optparse, itertools, warnings, traceback, os.path
 
 import HTSeq
