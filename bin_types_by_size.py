@@ -126,7 +126,7 @@ def count_features_in_aln_manual(aln_file, ann_file, feature_type, output_dir=No
     feature_array = HTSeq.GenomicArrayOfSets( "auto", stranded=False )
 
 
-class redirect_stream(object):
+class RedirectStream(object):
     """
     Context manager to swap one stream for another temporarily. Useful for e.g. temporarily redirecting STDOUT to a file.
     """
