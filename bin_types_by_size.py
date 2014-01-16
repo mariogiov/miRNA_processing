@@ -66,9 +66,9 @@ def annotate_count_aln(aln_file, ann_file, output_dir, feature_type):
     print("Getting counts for feature type \"{feature_type}\" in alignment file \"{aln_file}\" "
           "from annotation file \"{ann_file}\"".format( feature_type=feature_type, aln_file=os.path.basename(aln_file),
                                                         ann_file=os.path.basename(ann_file)), file=sys.stderr)
-    with open(os.devnull, 'w') as f:
-        # counts_reads_in_features prints to stdout --> redirect to a file
-        with redirect_stream(sys.stdout, f):
+    with open(os.devnull, 'w') as null:
+        # counts.counts_reads_in_features prints things to stdout --> redirect to /dev/null
+        with redirect_stream(sys.stdout, null):
             try:
                 # Usage: count_reads_in_features( sam_filename, gff_filename, stranded, overlap_mode, feature_type, id_attribute, quiet, minaqual, samout )
                 return counts.count_reads_in_features(aln_file, ann_file, False, "union", feature_type, 'ID', False, 10, "")
