@@ -287,17 +287,17 @@ if __name__ == "__main__":
                         help="The genome reference file against which to align.")
     parser.add_argument("-g", "--genome-feature-file", dest="annotation_file",
                         help="GTF/GFF genome feature file to use for annotation (must match reference file).")
-    parser.add_argument("-m", "--mirbase-file", dest="mirbase_file",
+    parser.add_argument("-m", "--mirbase-file",
                         help="The miRBase reference file.")
-    parser.add_argument("-o", "--output-dir", dest="output_dir",
+    parser.add_argument("-o", "--output-dir",
                         help="The output directory.")
-    parser.add_argument("-n", "--num-cores", dest="num_cores", type=int,
+    parser.add_argument("-n", "--num-cores", type=int,
                         help="The number of cores to use for alignment.")
-    parser.add_argument("-t", "--tmp-dir", dest="tmp_dir",
+    parser.add_argument("-t", "--tmp-dir",
                         help="Optionally specify a temporary directory.")
-    parser.add_argument("-f", "--force-overwrite", dest="force_overwrite", action="store_true", default=False,
+    parser.add_argument("-f", "--force-overwrite", action="store_true", default=False,
                         help="Force overwrite of existing files.")
-    parser.add_argument("-k", "--keep-tmp", dest="keep_tmp", action="store_true", default=False,
+    parser.add_argument("-k", "--keep-tmp", action="store_true", default=False,
                         help="Keep temporary files after processing.")
     parser.add_argument("input_fastq_list", nargs="+", required=True)
 
