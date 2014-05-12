@@ -9,9 +9,11 @@ import argparse
 import datetime
 import HTSeq
 import os
+import re
 import shlex
 import sys
 import subprocess
+import tempfile
 
 def main(genomeref_file, annotation_file, mirbase_file, output_dir, num_cores, force_overwrite, keep_tmp, tmp_dir, input_fastq_list):
     """
@@ -68,20 +70,21 @@ def decompress_file(input_file, output_dir=os.getcwd(), return_pipe=False):
     # TODO add bzip2 support
 
     if is_compressed(input_file):
-        cmd = shlex.split(dcmp_str.format(fastq_file))
-        # Remove .gz, .gzip, .bz2 extensions if present
         if return_pipe:
-            return subprocess.Popen(cmd, stdout=subprocess.PIPE).stdout
+            cmd = shlex.split("gzip -d -c {0}".format(input_file))
+            return subprocess.Popen(cmd, stdout=subprocess.PIPE)
         else:
-            basename = strip_gzip_ext(os.path.basename(fastq_file))
-            output_file = os.path.join(run_directory.tmp_dir, basename)
+            # Remove .gz, .gzip, .bz2 extensions if present
+            basename = strip_gzip_ext(os.path.basename(input_file))
+            output_file = os.path.join(output_dir, basename)
+            cmd = shlex.split("gzip -d {0}".format(input_file))
             with open(output_file, 'w') as f:
                 subprocess.Popen(cmd, stdout=f)
             return output_file
     else:
         if return_pipe:
             cmd = shlex.split("cat {}".format(input_file))
-            return subprocess.Popen(cmd, stdout=subprocess.PIPE).stdout
+            return subprocess.Popen(cmd, stdout=subprocess.PIPE)
         else:
             return os.path.realpath(input_file)
 
@@ -92,7 +95,8 @@ def strip_gzip_ext(file_name):
     # TODO add bzip2 support
 
     base, ext = os.path.splitext(file_name)
-    if re.match('\.gz(ip)?$|.bz2', ".bz2", ext):
+    # if re.match('\.gz(ip)?$|.bz2', ".bz2", ext):
+    if re.match('\.gz(ip)?$|.bz2', ext):
         file_name = base
     return file_name
 
@@ -110,7 +114,7 @@ def merge_input_fastq_files(input_fastq_list, run_directory):
     else:
         merged_filename = "MERGED_{}".format(strip_gzip_ext(os.path.basename(input_fastq_list[0])))
         merged_filepath = os.path.join(run_directory.tmp_dir, merged_filename)
-        with open(merged_filepath) as output_file:
+        with open(merged_filepath, 'w') as output_file:
             for fastq_file in input_fastq_list:
                 stream = decompress_file(fastq_file, return_pipe=True)
                 output_file.write(stream.stdout.read())
@@ -158,7 +162,7 @@ class RunDirectory(object):
         if not output_dir:
             output_dir = os.path.join(  os.getcwd(),
                                         "smRNA_run_{}".format(datetime.date.strftime(
-                                        datetime.datetime.now(), format="%Y%m%d_%X")))
+                                        datetime.datetime.now(), format="%Y%m%d_%H-%M-%S")))
         else:
             output_dir = os.path.realpath(output_dir)
 
@@ -183,15 +187,10 @@ class RunDirectory(object):
         if not tmp_dir:
             # try using environment vars to locate system tmp
             tmp_dir = os.getenv('TMPDIR') or os.getenv('SNIC_TMP') or self.output_dir
-        tmp_dir = os.path.join(os.path.realpath(tmp_dir), "tmp")
-
-        try:
-            print('Creating tmp directory "{}"'.format(tmp_dir), file=sys.stderr)
-            os.makedirs(tmp_dir)
-        except OSError as e:
-            if e.errno is 17:
-            # Tmp dir already exists, which should be fine
-                pass
+        
+        # Use the tempfile package to create a temporary directory
+        tmp_dir = tempfile.mkdtemp(prefix='tmp_', dir=tmp_dir)
+        print('Creating tmp directory "{}"'.format(tmp_dir), file=sys.stderr)
 
         self.tmp_dir = tmp_dir
         return self.tmp_dir
@@ -240,7 +239,8 @@ if __name__ == "__main__":
                         help="Force overwrite of existing files.")
     parser.add_argument("-k", "--keep-tmp", action="store_true", default=False,
                         help="Keep temporary files after processing.")
-    parser.add_argument("input_fastq_list", nargs="+", required=True)
+    parser.add_argument("input_fastq_list", nargs="+")
 
     kwargs = vars(parser.parse_args())
+    
     main(**kwargs)
