@@ -19,22 +19,36 @@ def main(genomeref_file, annotation_file, mirbase_file, output_dir, num_cores, f
     """
     Add docstring
     """
-
+    
+    # Sanity check - make sure input files exist
+    for fname in input_fastq_list:
+        if not os.path.isfile(fname):
+            print("Fatal error - can't find input file {}".format(fname))
+            sys.exit()
+    
+    # Load environment modules
+    env_modules = ['bioinfo-tools','cutadapt','FastQC','bowtie']
+    load_modules(env_modules)
+    
+    # Find the number of available cores
+    num_cores = get_validated_cores(num_cores)
+    
+    # Set up directories
     run_directory = RunDirectory(output_dir, tmp_dir, keep_tmp, force_overwrite)
+    
     # TODO Initialize logger -- see how Guillermo tends to do this -- need to write to local file, stderr, and logstash
     # logger = 
-
-    num_cores = get_validated_cores(num_cores)
-
+    
+    # Merge and decompress input files
     working_fastq = merge_input_fastq_files(input_fastq_list, run_directory)
-
-    # Somehow activate the modules command, or use python functions
-
+    
     # cutadapt
+    trimmed_fastq = run_cutadapt(working_fastq, run_directory)
+    print("Finished running cutadapt. Output file: {}".format(trimmed_fastq), file=sys.stderr)
 
     # fastqc
 
-    # bowtie2 alignment
+    # bowtie alignment
 
     # annotate (htseq-count)
 
@@ -44,6 +58,43 @@ def main(genomeref_file, annotation_file, mirbase_file, output_dir, num_cores, f
 
     # remove or save tmp directory
     pass
+
+def load_modules(modules):
+    """
+    Takes a list of environment modules to load (in order) and
+    loads them using /usr/local/Modules/lmod/bin/modulecmd python load
+    Returns True
+    """
+    # Module loading is normally controlled by a bash function in .bashrc
+    # As well as the modulecmd bash which is used here, there's also
+    # a modulecmd python which allows us to use modules from within python
+    # UPPMAX support staff didn't seem to know this existed, so use with caution
+    # The modulecmd path is hardcoded for UPPMAX. Sorry about that chaps.
+    for mod in modules:
+        p = subprocess.Popen("/usr/local/Modules/lmod/bin/modulecmd python load "+mod,
+                            stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True)
+        stdout,stderr = p.communicate()
+        exec stdout
+    return True
+          
+        
+def get_validated_cores(num_cores):
+    sys_cores =     os.getenv('SLURM_CPUS_ON_NODE') \
+                or  subprocess.check_output(['nproc', '--all']) \
+                or  1
+    sys_cores = int(sys_cores)
+
+    if not num_cores:
+        num_cores = sys_cores
+    if num_cores > sys_cores:
+        print(  "Requested number of cores ({num_cores}) greater than number of system cores ({sys_cores}); " \
+                "using {sys_cores} instead.".format(**locals()), file=sys.stderr)
+        num_cores = sys_cores
+    if num_cores < 1:
+        print(  "Requested number of cores ({num_cores}) must be a postive integer; " \
+                "using 1 instead.".format(**locals()), file=sys.stderr)
+        num_cores = 1
+    return num_cores
 
 def is_compressed(input_file):
     """
@@ -120,23 +171,29 @@ def merge_input_fastq_files(input_fastq_list, run_directory):
                 output_file.write(stream.stdout.read())
         return merged_filepath
 
-def get_validated_cores(num_cores):
-    sys_cores =     os.getenv('SLURM_CPUS_ON_NODE') \
-                or  subprocess.check_output(['nproc', '--all']) \
-                or  1
-    sys_cores = int(sys_cores)
+def run_cutadapt(fq_input, run_directory, min_qual=10, min_match=3, min_length=18, adapter="TGGAATTCTCGGGTGCCAAGG"):
+    """
+    Run Cutadapt on a FastQ input file
+    """
+    fq_output_fn = "{}_trimmed.fq".format(os.path.splitext(os.path.basename(fq_input))[0])
+    fq_output = os.path.join(run_directory.output_dir, fq_output_fn)
+    
+    # Put the command together
+    cmd = shlex.split("cutadapt -f fastq -a {adapter} -q {min_qual} " \
+                      "--match-read-wildcards -O {min_match} -m {min_length}" \
+                      " -o {fq_output} {fq_input}".format(**locals()))
+    print("Running cutadapt. Command: {}".format(cmd), file=sys.stderr)
+    
+    # Run the command
+    print("Running cutadapt - started at {}".format(datetime.date.strftime(
+                        datetime.datetime.now(), format="%Y%m%d_%H:%M:%S")),
+                        file=sys.stderr)
+    try:
+        subprocess.check_call(cmd)
+        return fq_output
+    except subprocess.CalledProcessError:
+        return False
 
-    if not num_cores:
-        num_cores = sys_cores
-    if num_cores > sys_cores:
-        print(  "Requested number of cores ({num_cores}) greater than number of system cores ({sys_cores}); " \
-                "using {sys_cores} instead.".format(**locals()), file=sys.stderr)
-        num_cores = sys_cores
-    if num_cores < 1:
-        print(  "Requested number of cores ({num_cores}) must be a postive integer; " \
-                "using 1 instead.".format(**locals()), file=sys.stderr)
-        num_cores = 1
-    return num_cores
 
 class RunDirectory(object):
     """
