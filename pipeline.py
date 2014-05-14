@@ -11,6 +11,7 @@ import HTSeq
 import os
 import re
 import shlex
+import shutil
 import sys
 import subprocess
 import tempfile
@@ -27,7 +28,7 @@ def main(genomeref_file, annotation_file, mirbase_file, output_dir, num_cores, f
             sys.exit()
     
     # Load environment modules
-    env_modules = ['bioinfo-tools','cutadapt','FastQC','bowtie']
+    env_modules = ['bioinfo-tools','cutadapt','FastQC','bowtie','samtools']
     load_modules(env_modules)
     
     # Find the number of available cores
@@ -43,12 +44,13 @@ def main(genomeref_file, annotation_file, mirbase_file, output_dir, num_cores, f
     working_fastq = merge_input_fastq_files(input_fastq_list, run_directory)
     
     # cutadapt
-    trimmed_fastq = run_cutadapt(working_fastq, run_directory)
-    print("Finished running cutadapt. Output file: {}".format(trimmed_fastq), file=sys.stderr)
+    trimmed_fastq = trim_fastq(working_fastq, run_directory)
 
     # fastqc
+    fastqc_report = fastqc(trimmed_fastq, run_directory)
 
     # bowtie alignment
+    aligned_bam = bowtie_align(trimmed_fastq, run_directory, genomeref_file, num_cores)
 
     # annotate (htseq-count)
 
@@ -57,6 +59,8 @@ def main(genomeref_file, annotation_file, mirbase_file, output_dir, num_cores, f
     # mirbase alignment
 
     # remove or save tmp directory
+    run_directory.remove_tmp_dir
+    
     pass
 
 def load_modules(modules):
@@ -171,26 +175,101 @@ def merge_input_fastq_files(input_fastq_list, run_directory):
                 output_file.write(stream.stdout.read())
         return merged_filepath
 
-def run_cutadapt(fq_input, run_directory, min_qual=10, min_match=3, min_length=18, adapter="TGGAATTCTCGGGTGCCAAGG"):
+def trim_fastq(fq_input, run_directory, min_qual=10, min_match=3, min_length=18, adapter="TGGAATTCTCGGGTGCCAAGG"):
     """
-    Run Cutadapt on a FastQ input file
+    Run Cutadapt with a FastQ input file
     """
     fq_output_fn = "{}_trimmed.fq".format(os.path.splitext(os.path.basename(fq_input))[0])
-    fq_output = os.path.join(run_directory.output_dir, fq_output_fn)
+    fq_output = os.path.join(run_directory.tmp_dir, fq_output_fn)
     
     # Put the command together
     cmd = shlex.split("cutadapt -f fastq -a {adapter} -q {min_qual} " \
-                      "--match-read-wildcards -O {min_match} -m {min_length}" \
-                      " -o {fq_output} {fq_input}".format(**locals()))
-    print("Running cutadapt. Command: {}".format(cmd), file=sys.stderr)
+                      "--match-read-wildcards -O {min_match} -m {min_length} " \
+                      "-o {fq_output} {fq_input}".format(**locals()))
+    # Status message
+    timestamp = datetime.date.strftime(datetime.datetime.now(), format="%H:%M:%S %d/%m/%Y")
+    print("\nRunning cutadapt. Started at {0}\nCommand: {1}\n".format(timestamp,
+                                                    " ".join(cmd)), file=sys.stderr)
     
     # Run the command
-    print("Running cutadapt - started at {}".format(datetime.date.strftime(
-                        datetime.datetime.now(), format="%Y%m%d_%H:%M:%S")),
-                        file=sys.stderr)
     try:
         subprocess.check_call(cmd)
         return fq_output
+    except subprocess.CalledProcessError:
+        return False
+
+
+
+def fastqc(fq_input, run_directory):
+    """
+    Run FastQC with a FastQ input file.
+    Returns the directory path containing the FastQC output files
+    """
+    outdir = os.path.join(run_directory.output_dir, "FastQC")
+    
+    # Make this directory if it doesn't already exist
+    if not os.path.exists(outdir):
+        os.makedirs(outdir)
+    
+    # Put the command together
+    # When FastQC is updated on UPPMAX, can use -q to prevent printing out %ages
+    cmd = shlex.split("fastqc -o {outdir} {fq_input}".format(**locals()))
+    # Status message
+    timestamp = datetime.date.strftime(datetime.datetime.now(), format="%H:%M:%S %d/%m/%Y")
+    print("\nRunning FastQC. Started at {0}\nCommand: {1}\n".format(timestamp,
+                                                    " ".join(cmd)), file=sys.stderr)
+    
+    # Run the command
+    try:
+        subprocess.check_call(cmd)
+        return outdir
+    except subprocess.CalledProcessError:
+        return False
+
+
+def bowtie_align(fq_input, run_directory, genomeref_file, num_cores):
+    """
+    Run Bowtie 1 with a FastQ input file and create aligned BAM file.
+    Uses parameters best suited to miRNA alignment.
+    Returns the path to the aligned BAM file.
+    """
+    fq_input = os.path.realpath(fq_input)
+    genomeref_file = os.path.realpath(genomeref_file)
+    bam_output_fn = "{}_aligned.bam".format(os.path.splitext(os.path.basename(fq_input))[0])
+    bam_output = os.path.join(run_directory.output_dir, bam_output_fn)
+    
+    # Put the bowtie 1 command together...
+    # -p {num_cores}        Number of cores to use for alignment
+    # -t                    Print out timestamps
+    # -n 0                  Do not allow any mismatches in seed
+    # -l 15                 Seed length of 15bp
+    # -e 99999              Disable max sum of mismatch quals across alignment
+    # -k 200                Report up to 200 good alignments per read
+    # --best                Report hits from best stratum
+    # -S                    SAM output
+    # --chunkmbs 2048       Up the max mb RAM from 64mb to 2gigs    
+    b_cmd = shlex.split("bowtie -p {num_cores} -t -n 0 -l 15 -e 99999 -k 200 " \
+                        "--best -S --chunkmbs 2048 {genomeref_file} {fq_input}" \
+                        .format(**locals()))
+    
+    # Write the samtools command to convert the SAM to a BAM. We'll write the
+    # stdout from this command to a file using Popen
+    samtools_cmd = shlex.split("samtools view -bS -")
+    
+    # Status message
+    timestamp = datetime.date.strftime(datetime.datetime.now(), format="%H:%M:%S %d/%m/%Y")
+    print("\nRunning Bowtie alignment. Started at {0}\nBowtie Command: {1}\n" \
+          "Samtools Command: {2}\n".format(timestamp, " ".join(b_cmd),
+                                      " ".join(samtools_cmd)), file=sys.stderr)
+    
+    # Run the command
+    try:
+        with open(bam_output, 'w') as fh:
+            bowtie = subprocess.Popen(b_cmd, stdout=subprocess.PIPE)
+            samtools = subprocess.Popen(samtools_cmd, stdin=bowtie.stdout, stdout=fh).communicate()
+            bowtie.stdout.close()
+        return bam_output
+        
     except subprocess.CalledProcessError:
         return False
 
@@ -251,7 +330,8 @@ class RunDirectory(object):
 
         self.tmp_dir = tmp_dir
         return self.tmp_dir
-
+        
+    # PHIL NOTE - what does this do?
     def create_dir(self, dir_name, in_tmp=False):
         """
         Create a new directory within the working or tmp directory.
@@ -274,13 +354,33 @@ class RunDirectory(object):
 
     def remove_tmp_dir(self):
         """
-        Remove the tmp directory.
+        Remove the tmp directory and its contents, unless -k / --keep-tmp
+        is specified, in which case move the tmp directory into the
+        working directory. Returns T/F
         """
+        if self.keep_tmp:
+            output_dir_tmp = os.path.join(self.output_dir, 'tmp')
+            print('--keep-tmp specified. Moving temporary directory {0} to {1}' \
+                    .format(self.tmp_dir, output_dir_tmp), file=sys.stderr)
+            try:
+                shutil.move(self.tmp_dir, output_dir_tmp)
+                return True
+            except:
+                return False
+        else:
+            print('Removing temporary directory {}'.format(self.tmp_dir), file=sys.stderr)
+            try:
+                shutil.rmtree(self.tmp_dir)
+                return True
+            except:
+                return False
+            
+        
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser("Execute the small RNA pipeline.")
     # TODO should allow multiple reference genomes but then need to determine how annotation files and reference files are linked
-    parser.add_argument("-r", "--genome-reference-file", dest="genomeref_file",
+    parser.add_argument("-r", "--genome-reference-file", dest="genomeref_file", required=True,
                         help="The genome reference file against which to align.")
     parser.add_argument("-g", "--genome-feature-file", dest="annotation_file",
                         help="GTF/GFF genome feature file to use for annotation (must match reference file).")
