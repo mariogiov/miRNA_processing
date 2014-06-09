@@ -8,6 +8,7 @@ from __future__ import print_function
 import argparse
 import datetime
 import HTSeq
+import numpy
 import os
 import re
 import shlex
@@ -16,9 +17,12 @@ import sys
 import subprocess
 import tempfile
 
+from collections import defaultdict
+from matplotlib import pyplot
+
 def main(genomeref_file, annotation_file, mirbase_file, output_dir, num_cores, force_overwrite, keep_tmp, tmp_dir, input_fastq_list):
     """
-    Add docstring
+    Add docstring here
     """
     
     # Sanity check - make sure input files exist
@@ -51,9 +55,25 @@ def main(genomeref_file, annotation_file, mirbase_file, output_dir, num_cores, f
 
     # bowtie alignment
     aligned_bam = bowtie_align(trimmed_fastq, run_directory, genomeref_file, num_cores)
-
+    
+    # sort and index the alignment bam file
+    # sorted_bam, bam_index = bam_sort_index(aligned_bam, run_directory)
+    
+    # Align against miRBase
+    miRBase_hairpin_aligned, miRBase_mature_aligned = miRBase_align(trimmed_fastq, run_directory, num_cores)
+    
     # annotate (htseq-count)
+    # if annotation_file and os.path.isfile(annotation_file):
+    #     # Process with HTSeq
+    #     annotated_bam, htseq_counts_csv = htseq_counts(aligned_bam, run_directory, annotation_file)
+    # else:
+    #     print("Error - annotation file not found, cannot calculate feature enrichment. " \
+    #           "Use -g to specify a GTF/GFF file.\nSkipping feature enrichment step..\n\n",
+    #            file=sys.stderr)
 
+    
+    
+    
     # visualizations
 
     # mirbase alignment
@@ -66,19 +86,21 @@ def main(genomeref_file, annotation_file, mirbase_file, output_dir, num_cores, f
 def load_modules(modules):
     """
     Takes a list of environment modules to load (in order) and
-    loads them using /usr/local/Modules/lmod/bin/modulecmd python load
+    loads them using modulecmd python load
     Returns True
     """
-    # Module loading is normally controlled by a bash function in .bashrc
-    # As well as the modulecmd bash which is used here, there's also
+    # Module loading is normally controlled by a bash function
+    # As well as the modulecmd bash which is used in .bashrc, there's also
     # a modulecmd python which allows us to use modules from within python
     # UPPMAX support staff didn't seem to know this existed, so use with caution
-    # The modulecmd path is hardcoded for UPPMAX. Sorry about that chaps.
     for mod in modules:
-        p = subprocess.Popen("/usr/local/Modules/lmod/bin/modulecmd python load "+mod,
+        p = subprocess.Popen("modulecmd python load "+mod,
                             stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True)
         stdout,stderr = p.communicate()
-        exec stdout
+        try:
+            exec stdout
+        except:
+            print("Error loading modules:", stderr, file=sys.stderr)
     return True
           
         
@@ -196,7 +218,7 @@ def trim_fastq(fq_input, run_directory, min_qual=10, min_match=3, min_length=18,
         subprocess.check_call(cmd)
         return fq_output
     except subprocess.CalledProcessError:
-        return False
+        return exit(1)
 
 
 
@@ -252,8 +274,8 @@ def bowtie_align(fq_input, run_directory, genomeref_file, num_cores):
                         "--best -S --chunkmbs 2048 {genomeref_file} {fq_input}" \
                         .format(**locals()))
     
-    # Write the samtools command to convert the SAM to a BAM. We'll write the
-    # stdout from this command to a file using Popen
+    # Write the samtools command to convert the SAM to a BAM
+    # We'll write the stdout from this command to a file using Popen
     samtools_cmd = shlex.split("samtools view -bS -")
     
     # Status message
@@ -271,8 +293,148 @@ def bowtie_align(fq_input, run_directory, genomeref_file, num_cores):
         return bam_output
         
     except subprocess.CalledProcessError:
-        return False
+        return exit(1)
 
+
+def bam_sort_index (input_bam, run_directory):
+    """
+    Run samtools sort and then samtools index on a BAM file.
+    Returns two filenames - sorted BAM and index file.
+    """
+    # Set up filenames
+    input_bam = os.path.realpath(input_bam)
+    input_bam_basename = os.path.splitext(os.path.basename(input_bam))[0]
+    sorted_bam_fn = "{}_sorted".format(input_bam_basename)
+    bam_index_fn = "{}_sorted.bai".format(input_bam_basename)
+    sorted_bam = os.path.join(run_directory.output_dir, sorted_bam_fn)
+    bam_index = os.path.join(run_directory.output_dir, bam_index_fn)
+    
+    # Write sorting command
+    samtools_sort_cmd = shlex.split("samtools sort {0} {1}" \
+                        .format(input_bam, sorted_bam))
+    
+    # Write index command
+    samtools_index_cmd = shlex.split("samtools index {0}.bam {1}" \
+                        .format(sorted_bam, bam_index))
+    
+    # Status message
+    print("\nSorting and indexing the aligned BAM file\nSorting Command: {1}\n" \
+          "Indexing Command: {2}\n".format(" ".join(samtools_sort_cmd),
+                                      " ".join(samtools_index_cmd)), file=sys.stderr)
+                                      
+    # Run the indexing
+    try:
+        subprocess.check_call(samtools_sort_cmd)
+        # Run the sorting
+        try:
+            subprocess.check_call(samtools_index_cmd)
+            return ("{}.bam".format(sorted_bam), bam_index)
+        except subprocess.CalledProcessError:
+            return False
+    except subprocess.CalledProcessError:
+        return False
+    
+def miRBase_align(fq_input, run_directory, num_cores):
+    """
+    Run Bowtie 1 with a FastQ input file and creates an aligned BAM file.
+    Aligns against miRBase hairpin and mature references
+    Uses parameters best suited to miRNA alignment.
+    Returns the path to the two aligned BAM files (hairpin, mature).
+    """
+    fq_input = os.path.realpath(fq_input)
+    miRBase_dir = os.path.dirname(os.path.realpath(__file__)) + 'miRBase/'
+    miRBase_hairpin = miRBase_dir + 'hairpin'
+    miRBase_mature = miRBase_dir + 'mature'
+    hairpin_output_fn = "{}_hairpin_miRNA_aligned.bam".format(os.path.splitext(os.path.basename(fq_input))[0])
+    hairpin_output = os.path.join(run_directory.output_dir, bam_output_fn)
+    mature_output_fn = "{}_mature_miRNA_aligned.bam".format(os.path.splitext(os.path.basename(fq_input))[0])
+    mature_output = os.path.join(run_directory.output_dir, bam_output_fn)
+    
+    # Alignment commands
+    h_cmd = shlex.split("bowtie -p {num_cores} -t -n 0 -l 15 -e 99999 -k 200 " \
+                        "--best -S --chunkmbs 2048 {miRBase_hairpin} {fq_input}" \
+                        .format(**locals()))
+    
+    m_cmd = shlex.split("bowtie -p {num_cores} -t -n 0 -l 15 -e 99999 -k 200 " \
+                        "--best -S --chunkmbs 2048 {miRBase_mature} {fq_input}" \
+                        .format(**locals()))
+    
+    # Samtools command
+    samtools_cmd = shlex.split("samtools view -bS -")
+    
+    # Status message
+    timestamp = datetime.date.strftime(datetime.datetime.now(), format="%H:%M:%S %d/%m/%Y")
+    print("\nRunning miRBase alignments. Started at {0}\nHairpin Alignment Command: {1}\n" \
+          "Mature Alignment Command: {2}\nSamtools Command: {3}\n".format(timestamp, " ".join(h_cmd),
+                                      " ".join(m_cmd), " ".join(samtools_cmd)), file=sys.stderr)
+    
+    # Run the hairpin alignment
+    try:
+        with open(hairpin_output, 'w') as fh:
+            bowtie = subprocess.Popen(h_cmd, stdout=subprocess.PIPE)
+            samtools = subprocess.Popen(samtools_cmd, stdin=bowtie.stdout, stdout=fh).communicate()
+            bowtie.stdout.close()
+    except subprocess.CalledProcessError:
+        return exit(1)
+    
+    # Run the mature alignment
+    try:
+        with open(mature_output, 'w') as fh:
+            bowtie = subprocess.Popen(m_cmd, stdout=subprocess.PIPE)
+            samtools = subprocess.Popen(samtools_cmd, stdin=bowtie.stdout, stdout=fh).communicate()
+            bowtie.stdout.close()
+    except subprocess.CalledProcessError:
+        return exit(1)
+    
+    # Return with filenames
+    return (hairpin_output, mature_output)
+    
+
+
+def htseq_counts(aligned_bam, run_directory, annotation_file):
+    """
+    Run htseq-count on the command line to create a counts file sorted by count
+    Returns paths to the annotated BAM file and counts file, as a list
+    """
+    # Set up filenames
+    aligned_bam = os.path.realpath(aligned_bam)
+    annotation_file = os.path.realpath(annotation_file)
+    
+    # Create HTSeq objects
+    sortedbamfile = HTSeq.BAM_Reader(aligned_bam)
+    gtffile = HTSeq.GFF_Reader(annotation_file)
+    
+    
+    
+    # Collect sets of features that we want to count over
+    # feature_types = set()
+    # for feature in gtffile:
+    #     if feature.type == "gene":
+    #         genes.add(feature.iv)
+    #     else if feature.type == "exon":
+    #         exons.add(feature.iv)
+    #     else if feature.type == "UTR":
+    #         utr.add(feature.iv)
+    #         
+    #    
+    # profile = numpy.zeros( 2*halfwinwidth, dtype='i' )   
+    # for p in tsspos:
+    #    window = HTSeq.GenomicInterval( p.chrom, 
+    #        p.pos - halfwinwidth - fragmentsize, p.pos + halfwinwidth + fragmentsize, "." )
+    #    for almnt in sortedbamfile[ window ]:
+    #       almnt.iv.length = fragmentsize
+    #       if p.strand == "+":
+    #          start_in_window = almnt.iv.start - p.pos + halfwinwidth 
+    #          end_in_window   = almnt.iv.end   - p.pos + halfwinwidth 
+    #       else:
+    #          start_in_window = p.pos + halfwinwidth - almnt.iv.end
+    #          end_in_window   = p.pos + halfwinwidth - almnt.iv.start
+    #       start_in_window = max( start_in_window, 0 )
+    #       end_in_window = min( end_in_window, 2*halfwinwidth )
+    #       if start_in_window >= 2*halfwinwidth or end_in_window < 0:
+    #          continue
+    #       profile[ start_in_window : end_in_window ] += 1
+  
 
 class RunDirectory(object):
     """
@@ -325,7 +487,7 @@ class RunDirectory(object):
             tmp_dir = os.getenv('TMPDIR') or os.getenv('SNIC_TMP') or self.output_dir
         
         # Use the tempfile package to create a temporary directory
-        tmp_dir = tempfile.mkdtemp(prefix='tmp_', dir=tmp_dir)
+        tmp_dir = tempfile.mkdtemp(prefix='miRNAtmp_', dir=tmp_dir)
         print('Creating tmp directory "{}"'.format(tmp_dir), file=sys.stderr)
 
         self.tmp_dir = tmp_dir
