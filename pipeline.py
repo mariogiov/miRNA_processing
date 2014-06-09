@@ -57,6 +57,7 @@ def main(genomeref_file, annotation_file, mirbase_file, output_dir, num_cores, f
     aligned_bam = bowtie_align(trimmed_fastq, run_directory, genomeref_file, num_cores)
     
     # sort and index the alignment bam file
+#TODO Do we still need to do this? Maybe remove?
     # sorted_bam, bam_index = bam_sort_index(aligned_bam, run_directory)
     
     # Align against miRBase
@@ -342,13 +343,13 @@ def miRBase_align(fq_input, run_directory, num_cores):
     Returns the path to the two aligned BAM files (hairpin, mature).
     """
     fq_input = os.path.realpath(fq_input)
-    miRBase_dir = os.path.dirname(os.path.realpath(__file__)) + 'miRBase/'
+    miRBase_dir = os.path.dirname(os.path.realpath(__file__)) + '/miRBase/'
     miRBase_hairpin = miRBase_dir + 'hairpin'
     miRBase_mature = miRBase_dir + 'mature'
     hairpin_output_fn = "{}_hairpin_miRNA_aligned.bam".format(os.path.splitext(os.path.basename(fq_input))[0])
-    hairpin_output = os.path.join(run_directory.output_dir, bam_output_fn)
+    hairpin_output = os.path.join(run_directory.output_dir, hairpin_output_fn)
     mature_output_fn = "{}_mature_miRNA_aligned.bam".format(os.path.splitext(os.path.basename(fq_input))[0])
-    mature_output = os.path.join(run_directory.output_dir, bam_output_fn)
+    mature_output = os.path.join(run_directory.output_dir, mature_output_fn)
     
     # Alignment commands
     h_cmd = shlex.split("bowtie -p {num_cores} -t -n 0 -l 15 -e 99999 -k 200 " \
