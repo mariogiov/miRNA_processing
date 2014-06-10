@@ -7,8 +7,6 @@ from __future__ import print_function
 
 import argparse
 import datetime
-import HTSeq
-import numpy
 import os
 import re
 import shlex
@@ -28,11 +26,10 @@ def main(genomeref_file, annotation_file, mirbase_file, output_dir, num_cores, f
     # Sanity check - make sure input files exist
     for fname in input_fastq_list:
         if not os.path.isfile(fname):
-            print("Fatal error - can't find input file {}".format(fname))
-            sys.exit()
+            raise IOError("Fatal error - can't find input file {}".format(fname))
     
     # Load environment modules
-    env_modules = ['bioinfo-tools','cutadapt','FastQC','bowtie','samtools']
+    env_modules = ['bioinfo-tools','cutadapt','FastQC','bowtie','samtools', 'htseq']
     load_modules(env_modules)
     
     # Find the number of available cores
@@ -56,25 +53,18 @@ def main(genomeref_file, annotation_file, mirbase_file, output_dir, num_cores, f
     # bowtie alignment
     aligned_bam = bowtie_align(trimmed_fastq, run_directory, genomeref_file, num_cores)
     
-    # sort and index the alignment bam file
-#TODO Do we still need to do this? Maybe remove?
-    # sorted_bam, bam_index = bam_sort_index(aligned_bam, run_directory)
-    
     # Align against miRBase
     miRBase_hairpin_aligned, miRBase_mature_aligned = miRBase_align(trimmed_fastq, run_directory, num_cores)
     
     # annotate (htseq-count)
-    # if annotation_file and os.path.isfile(annotation_file):
-    #     # Process with HTSeq
-    #     annotated_bam, htseq_counts_csv = htseq_counts(aligned_bam, run_directory, annotation_file)
-    # else:
-    #     print("Error - annotation file not found, cannot calculate feature enrichment. " \
-    #           "Use -g to specify a GTF/GFF file.\nSkipping feature enrichment step..\n\n",
-    #            file=sys.stderr)
+    if annotation_file and os.path.isfile(annotation_file):
+        # Process with HTSeq
+        annotated_bam, htseq_counts_csv = htseq_counts(aligned_bam, run_directory, annotation_file)
+    else:
+        print("Error - annotation file not found, cannot calculate feature enrichment. " \
+              "Use -g to specify a GTF/GFF file.\nSkipping feature enrichment step..\n\n",
+               file=sys.stderr)
 
-    
-    
-    
     # visualizations
 
     # mirbase alignment
@@ -295,45 +285,8 @@ def bowtie_align(fq_input, run_directory, genomeref_file, num_cores):
         
     except subprocess.CalledProcessError:
         return exit(1)
-
-
-def bam_sort_index (input_bam, run_directory):
-    """
-    Run samtools sort and then samtools index on a BAM file.
-    Returns two filenames - sorted BAM and index file.
-    """
-    # Set up filenames
-    input_bam = os.path.realpath(input_bam)
-    input_bam_basename = os.path.splitext(os.path.basename(input_bam))[0]
-    sorted_bam_fn = "{}_sorted".format(input_bam_basename)
-    bam_index_fn = "{}_sorted.bai".format(input_bam_basename)
-    sorted_bam = os.path.join(run_directory.output_dir, sorted_bam_fn)
-    bam_index = os.path.join(run_directory.output_dir, bam_index_fn)
-    
-    # Write sorting command
-    samtools_sort_cmd = shlex.split("samtools sort {0} {1}" \
-                        .format(input_bam, sorted_bam))
-    
-    # Write index command
-    samtools_index_cmd = shlex.split("samtools index {0}.bam {1}" \
-                        .format(sorted_bam, bam_index))
-    
-    # Status message
-    print("\nSorting and indexing the aligned BAM file\nSorting Command: {1}\n" \
-          "Indexing Command: {2}\n".format(" ".join(samtools_sort_cmd),
-                                      " ".join(samtools_index_cmd)), file=sys.stderr)
-                                      
-    # Run the indexing
-    try:
-        subprocess.check_call(samtools_sort_cmd)
-        # Run the sorting
-        try:
-            subprocess.check_call(samtools_index_cmd)
-            return ("{}.bam".format(sorted_bam), bam_index)
-        except subprocess.CalledProcessError:
-            return False
-    except subprocess.CalledProcessError:
-        return False
+        
+        
     
 def miRBase_align(fq_input, run_directory, num_cores):
     """
@@ -400,41 +353,31 @@ def htseq_counts(aligned_bam, run_directory, annotation_file):
     # Set up filenames
     aligned_bam = os.path.realpath(aligned_bam)
     annotation_file = os.path.realpath(annotation_file)
+    annotated_bam_fn = "{}_annotated.bam".format(os.path.splitext(os.path.basename(aligned_bam))[0])
+    annotated_bam = os.path.join(run_directory.output_dir, annotated_bam_fn)
+    htseq_counts_fn = "{}_counts.csv".format(os.path.splitext(os.path.basename(aligned_bam))[0])
+    htseq_counts = os.path.join(run_directory.output_dir, htseq_counts_fn)
     
-    # Create HTSeq objects
-    sortedbamfile = HTSeq.BAM_Reader(aligned_bam)
-    gtffile = HTSeq.GFF_Reader(annotation_file)
+    # Write the commands
+    samtools_view_cmd = shlex.split("samtools view -h {}".format(aligned_bam))
+    htseq_cmd = shlex.split("htseq-count -o {} -t exon -s no -q -i 'ID' - {}" \
+                        .format(annotated_bam, annotation_file))
+    sort_cmd = shlex.split("sort -n -k 2 -r")
     
+    # Pipe, baby, pipe
+    try:
+        with open(htseq_counts, 'w') as fh:
+            samtools_view_cmd = subprocess.Popen(h_cmd, stdout=subprocess.PIPE)
+            htseq_cmd = subprocess.Popen(samtools_cmd, stdin=samtools_view_cmd.stdout, stdout=subprocess.PIPE).communicate()
+            sort_cmd = subprocess.Popen(samtools_cmd, stdin=htseq_cmd.stdout, stdout=fh).communicate()
+            samtools_view_cmd.stdout.close()
+            htseq_cmd.stdout.close()
+    except subprocess.CalledProcessError:
+        return exit(1)
     
-    
-    # Collect sets of features that we want to count over
-    # feature_types = set()
-    # for feature in gtffile:
-    #     if feature.type == "gene":
-    #         genes.add(feature.iv)
-    #     else if feature.type == "exon":
-    #         exons.add(feature.iv)
-    #     else if feature.type == "UTR":
-    #         utr.add(feature.iv)
-    #         
-    #    
-    # profile = numpy.zeros( 2*halfwinwidth, dtype='i' )   
-    # for p in tsspos:
-    #    window = HTSeq.GenomicInterval( p.chrom, 
-    #        p.pos - halfwinwidth - fragmentsize, p.pos + halfwinwidth + fragmentsize, "." )
-    #    for almnt in sortedbamfile[ window ]:
-    #       almnt.iv.length = fragmentsize
-    #       if p.strand == "+":
-    #          start_in_window = almnt.iv.start - p.pos + halfwinwidth 
-    #          end_in_window   = almnt.iv.end   - p.pos + halfwinwidth 
-    #       else:
-    #          start_in_window = p.pos + halfwinwidth - almnt.iv.end
-    #          end_in_window   = p.pos + halfwinwidth - almnt.iv.start
-    #       start_in_window = max( start_in_window, 0 )
-    #       end_in_window = min( end_in_window, 2*halfwinwidth )
-    #       if start_in_window >= 2*halfwinwidth or end_in_window < 0:
-    #          continue
-    #       profile[ start_in_window : end_in_window ] += 1
+    # Return with filenames
+    return (annotated_bam, htseq_counts)
+
   
 
 class RunDirectory(object):
