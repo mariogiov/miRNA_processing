@@ -53,10 +53,7 @@ def main(genomeref_file, annotation_file, mirbase_file, output_dir, num_cores, f
     # bowtie alignment
     aligned_bam = bowtie_align(trimmed_fastq, run_directory, genomeref_file, num_cores)
     
-    # Align against miRBase
-    miRBase_hairpin_aligned, miRBase_mature_aligned = miRBase_align(trimmed_fastq, run_directory, num_cores)
-    
-    # annotate (htseq-count)
+    # annotate with htseq-count
     if annotation_file and os.path.isfile(annotation_file):
         # Process with HTSeq
         annotated_bam, htseq_counts_csv = htseq_counts(aligned_bam, run_directory, annotation_file)
@@ -64,10 +61,19 @@ def main(genomeref_file, annotation_file, mirbase_file, output_dir, num_cores, f
         print("Error - annotation file not found, cannot calculate feature enrichment. " \
               "Use -g to specify a GTF/GFF file.\nSkipping feature enrichment step..\n\n",
                file=sys.stderr)
-
+    
+    # Align against miRBase
+    miRBase_hairpin_aligned, miRBase_mature_aligned = miRBase_align(trimmed_fastq, run_directory, num_cores)
+    
+    # Sort and index the miRBase alignments
+    hairpin_sorted, hairpin_index = bam_sort_index(miRBase_hairpin_aligned, run_directory)
+    mature_sorted, mature_index = bam_sort_index(miRBase_mature_aligned, run_directory)
+    
+    # Produce counts of miRNA alignments
+    hairpin_counts = samtools_count_alignments(hairpin_sorted, run_directory)
+    mature_counts = samtools_count_alignments(mature_sorted, run_directory)
+    
     # visualizations
-
-    # mirbase alignment
 
     # remove or save tmp directory
     run_directory.remove_tmp_dir
@@ -288,6 +294,39 @@ def bowtie_align(fq_input, run_directory, genomeref_file, num_cores):
         
         
     
+def htseq_counts(aligned_bam, run_directory, annotation_file):
+    """
+    Run htseq-count on the command line to create a counts file sorted by count
+    Returns paths to the annotated BAM file and counts file, as a list
+    """
+    # Set up filenames
+    aligned_bam = os.path.realpath(aligned_bam)
+    annotation_file = os.path.realpath(annotation_file)
+    annotated_bam_fn = "{}_annotated.bam".format(os.path.splitext(os.path.basename(aligned_bam))[0])
+    annotated_bam = os.path.join(run_directory.output_dir, annotated_bam_fn)
+    htseq_counts_fn = "{}_counts.csv".format(os.path.splitext(os.path.basename(aligned_bam))[0])
+    htseq_counts = os.path.join(run_directory.output_dir, htseq_counts_fn)
+    
+    # Write the commands
+    samtools_view_cmd = shlex.split("samtools view -h {}".format(aligned_bam))
+    htseq_cmd = shlex.split("htseq-count -o {} -t exon -s no -q -i 'ID' - {}" \
+                        .format(annotated_bam, annotation_file))
+    sort_cmd = shlex.split("sort -n -k 2 -r")
+    
+    # Pipe, baby, pipe
+    try:
+        with open(htseq_counts, 'w') as fh:
+            samtools_view_p = subprocess.Popen(samtools_view_cmd, stdout=subprocess.PIPE)
+            htseq_p = subprocess.Popen(htseq_cmd, stdin=samtools_view_p.stdout, stdout=subprocess.PIPE).communicate()
+            sort_p = subprocess.Popen(sort_cmd, stdin=htseq_p.stdout, stdout=fh).communicate()
+            samtools_view_p.stdout.close()
+            htseq_p.stdout.close()
+    except subprocess.CalledProcessError:
+        return exit(1)
+    
+    # Return with filenames
+    return (annotated_bam, htseq_counts)
+    
 def miRBase_align(fq_input, run_directory, num_cores):
     """
     Run Bowtie 1 with a FastQ input file and creates an aligned BAM file.
@@ -313,8 +352,8 @@ def miRBase_align(fq_input, run_directory, num_cores):
                         "--best -S --chunkmbs 2048 {miRBase_mature} {fq_input}" \
                         .format(**locals()))
     
-    # Samtools command
-    samtools_cmd = shlex.split("samtools view -bS -")
+    # Samtools command - **ignore unmapped reads**
+    samtools_cmd = shlex.split("samtools view -bSF -")
     
     # Status message
     timestamp = datetime.date.strftime(datetime.datetime.now(), format="%H:%M:%S %d/%m/%Y")
@@ -342,43 +381,75 @@ def miRBase_align(fq_input, run_directory, num_cores):
     
     # Return with filenames
     return (hairpin_output, mature_output)
-    
 
 
-def htseq_counts(aligned_bam, run_directory, annotation_file):
+def bam_sort_index (input_bam, run_directory):
     """
-    Run htseq-count on the command line to create a counts file sorted by count
-    Returns paths to the annotated BAM file and counts file, as a list
+    Run samtools sort and then samtools index on a BAM file.
+    Returns two filenames - sorted BAM and index file.
     """
     # Set up filenames
-    aligned_bam = os.path.realpath(aligned_bam)
-    annotation_file = os.path.realpath(annotation_file)
-    annotated_bam_fn = "{}_annotated.bam".format(os.path.splitext(os.path.basename(aligned_bam))[0])
-    annotated_bam = os.path.join(run_directory.output_dir, annotated_bam_fn)
-    htseq_counts_fn = "{}_counts.csv".format(os.path.splitext(os.path.basename(aligned_bam))[0])
-    htseq_counts = os.path.join(run_directory.output_dir, htseq_counts_fn)
+    input_bam = os.path.realpath(input_bam)
+    input_bam_basename = os.path.splitext(os.path.basename(input_bam))[0]
+    sorted_bam_fn = "{}_sorted".format(input_bam_basename)
+    bam_index_fn = "{}_sorted.bai".format(input_bam_basename)
+    sorted_bam = os.path.join(run_directory.output_dir, sorted_bam_fn)
+    bam_index = os.path.join(run_directory.output_dir, bam_index_fn)
     
-    # Write the commands
-    samtools_view_cmd = shlex.split("samtools view -h {}".format(aligned_bam))
-    htseq_cmd = shlex.split("htseq-count -o {} -t exon -s no -q -i 'ID' - {}" \
-                        .format(annotated_bam, annotation_file))
-    sort_cmd = shlex.split("sort -n -k 2 -r")
+    # Write sorting command
+    samtools_sort_cmd = shlex.split("samtools sort {0} {1}" \
+                        .format(input_bam, sorted_bam))
     
-    # Pipe, baby, pipe
+    # Write index command
+    samtools_index_cmd = shlex.split("samtools index {0}.bam {1}" \
+                        .format(sorted_bam, bam_index))
+    
+    # Status message
+    print("\nSorting and indexing BAM file\nSorting Command: {1}\n" \
+          "Indexing Command: {2}\n".format(" ".join(samtools_sort_cmd),
+                                      " ".join(samtools_index_cmd)), file=sys.stderr)
+                                      
+    # Run the indexing
     try:
-        with open(htseq_counts, 'w') as fh:
-            samtools_view_cmd = subprocess.Popen(h_cmd, stdout=subprocess.PIPE)
-            htseq_cmd = subprocess.Popen(samtools_cmd, stdin=samtools_view_cmd.stdout, stdout=subprocess.PIPE).communicate()
-            sort_cmd = subprocess.Popen(samtools_cmd, stdin=htseq_cmd.stdout, stdout=fh).communicate()
-            samtools_view_cmd.stdout.close()
-            htseq_cmd.stdout.close()
+        subprocess.check_call(samtools_sort_cmd)
+        # Run the sorting
+        try:
+            subprocess.check_call(samtools_index_cmd)
+            return ("{}.bam".format(sorted_bam), bam_index)
+        except subprocess.CalledProcessError:
+            return False
     except subprocess.CalledProcessError:
-        return exit(1)
+        return False
+        
+        
+def samtools_count_alignments (input_bam, run_directory):
+    """
+    Run samtools idxstats to count alignments in a BAM file.
+    Requires a *sorted* and *indexed* BAM file.
+    Writes an output file and returns filename
+    """
+    # Set up filenames
+    input_bam = os.path.realpath(input_bam)
+    input_bam_basename = os.path.splitext(os.path.basename(input_bam))[0]
+    counts_fn = "{}_counts.txt".format(input_bam_basename)
+    counts_path = os.path.join(run_directory.output_dir, counts_fn)
     
-    # Return with filenames
-    return (annotated_bam, htseq_counts)
+    # Write commands
+    samtools_cmd = shlex.split("samtools idxstats {}".format(input_bam))
+    sort_cmd = shlex.split("sort -r -k3,3")
+    
+    # Run the commands
+    try:
+        with open(counts_path, 'w') as fh:
+            samtools_p = subprocess.Popen(samtools_cmd, stdout=subprocess.PIPE)
+            sort_p = subprocess.Popen(sort_cmd, stdin=samtools_p.stdout, stdout=fh).communicate()
+            samtools_p.stdout.close()
+    except subprocess.CalledProcessError:
+        return False
+    
+    # Return counts filename
+    return counts_path
 
-  
 
 class RunDirectory(object):
     """
@@ -482,6 +553,8 @@ class RunDirectory(object):
                 return False
             
         
+        
+          
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser("Execute the small RNA pipeline.")
