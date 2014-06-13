@@ -62,6 +62,9 @@ def main(genomeref_file, annotation_file, mirbase_file, output_dir, num_cores, f
               "Use -g to specify a GTF/GFF file.\nSkipping feature enrichment step..\n\n",
                file=sys.stderr)
     
+    # TODO - offer secondary annotation against miRBase co-ordinates?
+    # http://www.mirbase.org/ftp.shtml
+    
     # Align against miRBase
     miRBase_hairpin_aligned, miRBase_mature_aligned = miRBase_align(trimmed_fastq, run_directory, num_cores)
     
@@ -296,7 +299,7 @@ def bowtie_align(fq_input, run_directory, genomeref_file, num_cores):
     
 def htseq_counts(aligned_bam, run_directory, annotation_file):
     """
-    Run htseq-count on the command line to create a counts file sorted by count
+    Run htseq-count on the command line to create an exon counts file sorted by count
     Returns paths to the annotated BAM file and counts file, as a list
     """
     # Set up filenames
@@ -304,7 +307,7 @@ def htseq_counts(aligned_bam, run_directory, annotation_file):
     annotation_file = os.path.realpath(annotation_file)
     annotated_bam_fn = "{}_annotated.bam".format(os.path.splitext(os.path.basename(aligned_bam))[0])
     annotated_bam = os.path.join(run_directory.output_dir, annotated_bam_fn)
-    htseq_counts_fn = "{}_counts.csv".format(os.path.splitext(os.path.basename(aligned_bam))[0])
+    htseq_counts_fn = "{}_counts.txt".format(os.path.splitext(os.path.basename(aligned_bam))[0])
     htseq_counts = os.path.join(run_directory.output_dir, htseq_counts_fn)
     
     # Write the commands
@@ -314,15 +317,30 @@ def htseq_counts(aligned_bam, run_directory, annotation_file):
     sort_cmd = shlex.split("sort -n -k 2 -r")
     
     # Pipe, baby, pipe
+    counts_output = ""
     try:
-        with open(htseq_counts, 'w') as fh:
-            samtools_view_p = subprocess.Popen(samtools_view_cmd, stdout=subprocess.PIPE)
-            htseq_p = subprocess.Popen(htseq_cmd, stdin=samtools_view_p.stdout, stdout=subprocess.PIPE).communicate()
-            sort_p = subprocess.Popen(sort_cmd, stdin=htseq_p.stdout, stdout=fh).communicate()
-            samtools_view_p.stdout.close()
-            htseq_p.stdout.close()
+        p1 = subprocess.Popen(samtools_view_cmd, stdout=subprocess.PIPE)
+        p2 = subprocess.Popen(htseq_cmd, stdin=p1.stdout, stdout=subprocess.PIPE)
+        p1.stdout.close()
+        p3 = subprocess.Popen(sort_cmd, stdin=p2.stdout, stdout=subprocess.PIPE)
+        p2.stdout.close()
+        counts_output = sort_p.read()
     except subprocess.CalledProcessError:
         return exit(1)
+    
+    # Write to file, stripping features with zero counts (unless they're __special)
+    try:
+        with open(htseq_counts, 'w') as fh:
+            print("Name\tRead Count\n", file=fh);
+            for counts_line in counts_output.split(os.linesep):
+                try:
+                    [name, readcount] = counts_line.split('\t')
+                except IndexError, e:
+                    raise IndexError(e.args)
+                if (readcount > 0 or name[:2] == '__'):
+                    print(counts_line+os.linesep, file=fh);
+    except IOError as e:
+        raise IOError(e)
     
     # Return with filenames
     return (annotated_bam, htseq_counts)
@@ -353,7 +371,7 @@ def miRBase_align(fq_input, run_directory, num_cores):
                         .format(**locals()))
     
     # Samtools command - **ignore unmapped reads**
-    samtools_cmd = shlex.split("samtools view -bSF -")
+    samtools_cmd = shlex.split("samtools view -bS -F 0x4 -")
     
     # Status message
     timestamp = datetime.date.strftime(datetime.datetime.now(), format="%H:%M:%S %d/%m/%Y")
@@ -405,9 +423,9 @@ def bam_sort_index (input_bam, run_directory):
                         .format(sorted_bam, bam_index))
     
     # Status message
-    print("\nSorting and indexing BAM file\nSorting Command: {1}\n" \
-          "Indexing Command: {2}\n".format(" ".join(samtools_sort_cmd),
-                                      " ".join(samtools_index_cmd)), file=sys.stderr)
+    # print("\nSorting and indexing BAM file\n", file=sys.stderr)
+    # print("Sorting Command: {}\n".format(" ".join(samtools_sort_cmd), file=sys.stderr)
+    # print("Indexing Command: {}\n".format(" ".join(samtools_index_cmd), file=sys.stderr)
                                       
     # Run the indexing
     try:
@@ -438,14 +456,32 @@ def samtools_count_alignments (input_bam, run_directory):
     samtools_cmd = shlex.split("samtools idxstats {}".format(input_bam))
     sort_cmd = shlex.split("sort -r -k3,3")
     
-    # Run the commands
+    # Output
+    counts_output = ""
+    
+    # Run the commands, save output in a string
     try:
-        with open(counts_path, 'w') as fh:
-            samtools_p = subprocess.Popen(samtools_cmd, stdout=subprocess.PIPE)
-            sort_p = subprocess.Popen(sort_cmd, stdin=samtools_p.stdout, stdout=fh).communicate()
-            samtools_p.stdout.close()
+        samtools_p = subprocess.Popen(samtools_cmd, stdout=subprocess.PIPE)
+        sort_p = subprocess.Popen(sort_cmd, stdin=samtools_p.stdout, stdout=subprocess.PIPE)
+        samtools_p.stdout.close()
+        counts_output = sort_p.read()
     except subprocess.CalledProcessError:
         return False
+    
+    # Print a header and strip any lines with a count of 0
+    try:
+        with open(counts_path, 'w') as fh:
+            print("Name\tLength\tNum Mapped\tNum Unmapped\n", file=fh);
+            for counts_line in counts_output.split(os.linesep):
+                try:
+                    readcount = counts_line.split('\t')[2]
+                except IndexError, e:
+                    raise IndexError(e.args)
+                if (readcount > 0):
+                    print(counts_line+os.linesep, file=fh);
+            
+    except IOError, e:
+        raise IOError(e.args)
     
     # Return counts filename
     return counts_path
